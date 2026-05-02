@@ -7,7 +7,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"io"
 	"io/fs"
 	"log"
@@ -26,20 +25,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-//go:embed static/*
+//go:embed static/dist/*
 var staticFS embed.FS
-
-var sessionsTemplate = template.Must(template.New("sessions").Parse(`{{range .}}
-<div class="session-item px-4 py-2.5 border-b border-ctp-surface0 cursor-pointer transition-colors duration-150 hover:bg-ctp-surface1" onclick="selectSession('{{.ID}}')">
-  <div class="flex items-center justify-between">
-    <div class="text-xs text-ctp-text">{{.Project}}</div>
-    {{if .LastMessageTime}}<div class="text-[10px] text-ctp-overlay0">{{.LastMessageTime}}</div>{{end}}
-  </div>
-  <div class="text-[11px] text-ctp-overlay1 break-all">{{.ID}}</div>
-  <div class="text-[10px] text-ctp-overlay0 mt-0.5">{{.CWD}}</div>
-  {{if .Model}}<div class="text-[10px] text-ctp-blue mt-0.5">{{.Model}}</div>{{end}}
-</div>
-{{end}}`))
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -122,15 +109,12 @@ func (s *Server) Start(addr string) error {
 	mux.HandleFunc("/api/rpc/send", s.handleRPCSend)
 	mux.HandleFunc("/api/rpc/status", s.handleRPCStatus)
 
-	// HTMX HTML fragment for session list
-	mux.HandleFunc("/sessions", s.handleSessionsHTML)
-
-	// Static files (dashboard)
-	staticSub, err := fs.Sub(staticFS, "static")
+	// Static files (Svelte SPA with fallback)
+	staticSub, err := fs.Sub(staticFS, "static/dist")
 	if err == nil {
-		mux.Handle("/", http.FileServer(http.FS(staticSub)))
+		mux.Handle("/", spaHandler(staticSub))
 	} else {
-		mux.Handle("/", http.FileServer(http.Dir("web/static")))
+		mux.Handle("/", http.FileServer(http.Dir("internal/server/static/dist")))
 	}
 
 	log.Printf("[server] listening on %s", addr)
@@ -208,11 +192,7 @@ func (s *Server) handleSessionByID(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(found)
 }
 
-func (s *Server) handleSessionsHTML(w http.ResponseWriter, r *http.Request) {
-	sessions := s.listSessions()
-	w.Header().Set("Content-Type", "text/html")
-	sessionsTemplate.Execute(w, sessions)
-}
+
 
 // handleSessionCreate creates a new session with a given cwd and starts RPC.
 func (s *Server) handleSessionCreate(w http.ResponseWriter, r *http.Request) {
@@ -757,3 +737,26 @@ func (s *LineScanner) Scan() bool {
 }
 
 func (s *LineScanner) Bytes() []byte { return s.line }
+
+// spaHandler serves the Svelte SPA with index.html fallback for client-side routing
+func spaHandler(fileSystem fs.FS) http.Handler {
+	index, err := fs.ReadFile(fileSystem, "index.html")
+	if err != nil {
+		log.Fatalf("failed to read index.html: %v", err)
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Try to serve the requested file
+		path := filepath.Join(".", r.URL.Path)
+		f, err := fileSystem.Open(path)
+		if err == nil {
+			f.Close()
+			http.FileServer(http.FS(fileSystem)).ServeHTTP(w, r)
+			return
+		}
+
+		// Fallback to index.html for SPA routing
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(index)
+	})
+}

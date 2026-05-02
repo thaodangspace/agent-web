@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ctp-base: #1e1e2e;
+  --color-ctp-mantle: #181825;
+  --color-ctp-crust: #11111b;
+  --color-ctp-surface0: #313244;
+  --color-ctp-surface1: #45475a;
+  --color-ctp-surface2: #585b70;
+  --color-ctp-overlay0: #6c7086;
+  --color-ctp-overlay1: #7f849c;
+  --color-ctp-subtext0: #a6adc8;
+  --color-ctp-text: #cdd6f4;
+  --color-ctp-lavender: #b4befe;
+  --color-ctp-blue: #89b4fa;
+  --color-ctp-sky: #89dceb;
+  --color-ctp-teal: #94e2d5;
+  --color-ctp-green: #a6e3a1;
+  --color-ctp-yellow: #f9e2af;
+  --color-ctp-peach: #fab387;
+  --color-ctp-maroon: #eba0ac;
+  --color-ctp-red: #f38ba8;
+  --color-ctp-mauve: #cba6f7;
+  --color-ctp-pink: #f5c2e7;
+  --color-ctp-flamingo: #f2cdcd;
+  --color-ctp-rosewater: #f5e0dc;
+
+  --font-family-sans: "JetBrains Mono", monospace;
+  --font-family-mono: "JetBrains Mono", monospace;
+
+  --animate-fade-in: fadeIn 0.2s ease;
+  --animate-pulse-slow: pulse 1.5s ease-in-out infinite;
+
+  @keyframes fadeIn {
+    0% { opacity: 0; transform: translateY(-4px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #313244; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #45475a; }
+
+/* Markdown prose (same as current .prose-markdown) */
+.prose-markdown { font-size: 13px; line-height: 1.7; color: #cdd6f4; }
+.prose-markdown p { margin: 0 0 0.6em 0; }
+.prose-markdown p:last-child { margin-bottom: 0; }
+.prose-markdown strong { color: #f5e0dc; font-weight: 600; }
+.prose-markdown em { color: #f2cdcd; font-style: italic; }
+.prose-markdown a { color: #89b4fa; text-decoration: underline; text-underline-offset: 2px; }
+.prose-markdown h1, .prose-markdown h2, .prose-markdown h3, .prose-markdown h4 {
+  margin: 1em 0 0.4em; font-weight: 700; color: #cba6f7;
+}
+.prose-markdown h1 { font-size: 1.4em; border-bottom: 1px solid #313244; padding-bottom: 0.3em; }
+.prose-markdown h2 { font-size: 1.2em; border-bottom: 1px solid #313244; padding-bottom: 0.25em; }
+.prose-markdown h3 { font-size: 1.05em; }
+.prose-markdown code {
+  font-size: 0.88em; padding: 0.15em 0.4em; border-radius: 4px;
+  background: #181825; color: #fab387;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+.prose-markdown pre {
+  margin: 0.6em 0; padding: 0.75em 1em; border-radius: 8px;
+  background: #11111b; border: 1px solid #313244; overflow-x: auto;
+}
+.prose-markdown pre code { padding: 0; background: transparent; color: #cdd6f4; font-size: 0.85em; line-height: 1.6; }
+.prose-markdown blockquote {
+  margin: 0.6em 0; padding: 0.4em 1em; border-left: 3px solid #cba6f7;
+  background: color-mix(in srgb, #cba6f7 8%, #1e1e2e);
+  border-radius: 0 6px 6px 0; color: #a6adc8;
+}
+.prose-markdown ul { margin: 0.4em 0; padding-left: 1.4em; list-style: disc; }
+.prose-markdown ol { margin: 0.4em 0; padding-left: 1.4em; list-style: decimal; }
+.prose-markdown li { margin: 0.15em 0; padding-left: 0.2em; }
+.prose-markdown li::marker { color: #7f849c; }
+.prose-markdown table { margin: 0.6em 0; width: 100%; border-collapse: collapse; font-size: 0.92em; }
+.prose-markdown th {
+  text-align: left; padding: 0.4em 0.7em; background: #181825;
+  color: #cba6f7; font-weight: 600; border: 1px solid #313244;
+}
+.prose-markdown td { padding: 0.4em 0.7em; border: 1px solid #313244; }
+.prose-markdown tr:nth-child(even) td {
+  background: color-mix(in srgb, #313244 30%, #1e1e2e);
+}
+
+/* highlight.js overrides */
+.hljs { background: transparent !important; padding: 0 !important; }
+pre .hljs { background: #11111b !important; padding: 0.75em 1em !important; border-radius: 6px; border: 1px solid #313244; }
+
+/* Typing dots animation */
+.typing-dots span { animation: pulse 1.4s ease-in-out infinite; }
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+/* Mobile sidebar */
+@media (max-width: 768px) {
+  .sidebar { position: fixed; top: 0; left: -280px; height: 100vh; z-index: 50; transition: left 0.3s ease; }
+  .sidebar.open { left: 0; }
+  .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40; }
+  .sidebar-overlay.open { display: block; }
+  .main-content { width: 100% !important; }
+}
