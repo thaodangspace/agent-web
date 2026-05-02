@@ -5,7 +5,7 @@
   import { activeSession } from '$lib/stores/session.svelte.js';
   import { userScrolledUp, newMessageCount } from '$lib/stores/messages.svelte.js';
   import { sendMessage, abortRPC } from '$lib/actions/rpc.js';
-  import { quitSession } from '$lib/actions/session.js';
+
   import MessageBubble from './MessageBubble.svelte';
   import AssistantBubble from './AssistantBubble.svelte';
   import ToolResultBlock from './ToolResultBlock.svelte';
@@ -186,14 +186,7 @@
             ⏹ Abort
           </button>
         {/if}
-        {#if $activeSession && activeRpcRunning()}
-          <button
-            class="px-3 py-1 rounded-md text-xs font-semibold bg-ctp-red/20 text-ctp-red hover:bg-ctp-red/30 transition-colors"
-            onclick={quitSession}
-          >
-            Quit Session
-          </button>
-        {/if}
+
       </div>
     </div>
   </div>

@@ -515,10 +515,15 @@ type SessionInfo struct {
 	Project         string    `json:"project"`
 	CWD             string    `json:"cwd"`
 	Model           string    `json:"model"`
+	Agent           string    `json:"agent"`
 	Timestamp       time.Time `json:"timestamp"`
 	LastMessageTime string    `json:"last_message_time"`
 	File            string    `json:"file"`
 	LineCount       int       `json:"line_count"`
+	InputTokens     int64     `json:"input_tokens"`
+	OutputTokens    int64     `json:"output_tokens"`
+	TotalTokens     int64     `json:"total_tokens"`
+	TotalCost       float64   `json:"total_cost"`
 }
 
 // listSessions scans the sessions directory and returns metadata for each file.
@@ -530,7 +535,7 @@ func (s *Server) listSessions() []SessionInfo {
 			return nil
 		}
 
-		info := SessionInfo{File: path}
+		info := SessionInfo{File: path, Agent: "pi"}
 
 		dir := filepath.Dir(path)
 		info.Project = filepath.Base(dir)
@@ -543,7 +548,7 @@ func (s *Server) listSessions() []SessionInfo {
 			}
 		}
 
-		info.LineCount, info.CWD, info.Model = countLinesAndCWD(path)
+		info.LineCount, info.CWD, info.Model, info.InputTokens, info.OutputTokens, info.TotalTokens, info.TotalCost = aggregateSessionData(path)
 		info.LastMessageTime = getLastMessageTime(path)
 
 		if fi, err := d.Info(); err == nil {
@@ -563,15 +568,19 @@ func (s *Server) listSessions() []SessionInfo {
 
 // countLinesAndCWD reads the JSONL file to get CWD, model, and counts total lines.
 func countLinesAndCWD(path string) (int, string, string) {
+	lineCount, cwd, model, _, _, _, _ := aggregateSessionData(path)
+	return lineCount, cwd, model
+}
+
+// aggregateSessionData reads the JSONL file and aggregates all session metadata.
+func aggregateSessionData(path string) (lineCount int, cwd string, model string, inputTokens, outputTokens, totalTokens int64, totalCost float64) {
 	f, err := os.Open(path)
 	if err != nil {
-		return 0, "", ""
+		return 0, "", "", 0, 0, 0, 0
 	}
 	defer f.Close()
 
 	count := 0
-	cwd := ""
-	model := ""
 	buf := make([]byte, 32*1024)
 	scanner := NewLineScanner(f, buf)
 
@@ -591,7 +600,7 @@ func countLinesAndCWD(path string) (int, string, string) {
 		// Look for model_change events
 		if model == "" {
 			var mc struct {
-				Type   string `json:"type"`
+				Type    string `json:"type"`
 				ModelID string `json:"modelId"`
 			}
 			if json.Unmarshal(line, &mc) == nil && mc.Type == "model_change" && mc.ModelID != "" {
@@ -611,13 +620,31 @@ func countLinesAndCWD(path string) (int, string, string) {
 				model = me.Message.Model
 			}
 		}
-		// Stop early if we found both
-		if cwd != "" && model != "" && count > 1 {
-			break
+		// Aggregate usage from assistant messages
+		var usageCheck struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role  string `json:"role"`
+				Usage *struct {
+					Input       int64 `json:"input"`
+					Output      int64 `json:"output"`
+					TotalTokens int64 `json:"totalTokens"`
+					Cost        struct {
+						Total float64 `json:"total"`
+					} `json:"cost"`
+				} `json:"usage"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(line, &usageCheck) == nil && usageCheck.Type == "message" && usageCheck.Message.Role == "assistant" && usageCheck.Message.Usage != nil {
+			u := usageCheck.Message.Usage
+			inputTokens += u.Input
+			outputTokens += u.Output
+			totalTokens += u.TotalTokens
+			totalCost += u.Cost.Total
 		}
 	}
 
-	return count, cwd, model
+	return count, cwd, model, inputTokens, outputTokens, totalTokens, totalCost
 }
 
 // getLastMessageTime reads the last line of the JSONL file and returns a formatted timestamp.

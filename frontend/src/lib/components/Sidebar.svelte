@@ -58,9 +58,12 @@
     </div>
     <div class="text-[11px] text-ctp-overlay1 break-all">{session.id}</div>
     <div class="text-[10px] text-ctp-overlay0 mt-0.5">{session.cwd}</div>
-    {#if session.model}
-      <div class="text-[10px] text-ctp-blue mt-0.5">{session.model}</div>
-    {/if}
+    <div class="flex items-center gap-2 mt-0.5">
+      <span class="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-ctp-mauve/20 text-ctp-mauve">{session.agent || 'pi'}</span>
+      {#if session.model}
+        <span class="text-[10px] text-ctp-blue">{session.model}</span>
+      {/if}
+    </div>
   </div>
 {/snippet}
 
