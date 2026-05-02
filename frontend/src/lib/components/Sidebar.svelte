@@ -8,21 +8,22 @@
   // Expanded project groups state
   let expandedProjects = $state({});
 
-  // Computed grouped sessions: sorted alphabetically by project, sessions within sorted by timestamp (newest first)
+  // Computed grouped sessions: sorted alphabetically by cwd, sessions within sorted by timestamp (newest first)
   let groupedSessions = $derived.by(() => {
     const list = $sessions;
     const groups = {};
     for (const session of list) {
-      if (!groups[session.project]) {
-        groups[session.project] = [];
+      const key = session.cwd || session.project || 'unknown';
+      if (!groups[key]) {
+        groups[key] = [];
       }
-      groups[session.project].push(session);
+      groups[key].push(session);
     }
     return Object.keys(groups)
       .sort()
-      .map(project => ({
-        project,
-        sessions: groups[project].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .map(cwd => ({
+        cwd,
+        sessions: groups[cwd].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
       }));
   });
 
@@ -32,15 +33,15 @@
     if (activeId) {
       for (const group of groupedSessions) {
         if (group.sessions.some(s => s.id === activeId)) {
-          expandedProjects[group.project] = true;
+          expandedProjects[group.cwd] = true;
           break;
         }
       }
     }
   });
 
-  function toggleProjectGroup(project) {
-    expandedProjects[project] = !expandedProjects[project];
+  function toggleProjectGroup(cwd) {
+    expandedProjects[cwd] = !expandedProjects[cwd];
   }
 </script>
 
@@ -90,18 +91,18 @@
         No sessions yet
       </div>
     {:else if $groupByProject}
-      <!-- Grouped by project -->
-      {#each groupedSessions as { project, sessions: projectSessions } (project)}
+      <!-- Grouped by cwd -->
+      {#each groupedSessions as { cwd, sessions: cwdSessions } (cwd)}
         <div class="project-group">
           <button
             class="w-full px-4 py-2 text-xs font-semibold text-ctp-subtext0 flex items-center justify-between hover:bg-ctp-surface1 cursor-pointer border-b border-ctp-surface0"
-            onclick={() => toggleProjectGroup(project)}
+            onclick={() => toggleProjectGroup(cwd)}
           >
-            <span>{project} ({projectSessions.length})</span>
-            <span>{expandedProjects[project] ? '▼' : '▶'}</span>
+            <span class="truncate">{cwd} ({cwdSessions.length})</span>
+            <span class="ml-2 flex-shrink-0">{expandedProjects[cwd] ? '▼' : '▶'}</span>
           </button>
-          {#if expandedProjects[project]}
-            {#each projectSessions as session (session.id)}
+          {#if expandedProjects[cwd]}
+            {#each cwdSessions as session (session.id)}
               {@render sessionItem(session)}
             {/each}
           {/if}
