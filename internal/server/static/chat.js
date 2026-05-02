@@ -4,7 +4,7 @@ import {
   setIsStreaming, setCurrentAssistantEl,
   userScrolledUp, newMessageCount, setUserScrolledUp, setNewMessageCount
 } from './state.js';
-import { scrollToBottom, isAtBottom, escapeHTML, formatText, timeNow } from './utils.js';
+import { scrollToBottom, isAtBottom, escapeHTML, formatText, timeNow, highlightCode, unescapeJsonString } from './utils.js';
 import { updateStreamingUI } from './ui.js';
 
 // ===== Loading Indicator =====
@@ -110,6 +110,70 @@ export function clearSeenEvents() {
   seenEvents.clear();
 }
 
+// ===== Tool Call Language Tracking =====
+// Maps toolCallId -> detected language for syntax highlighting tool results
+const toolCallLanguages = new Map();
+
+/**
+ * Detect language from a file path based on extension.
+ * Returns highlight.js language name or null.
+ */
+function detectLanguageFromPath(path) {
+  if (!path || typeof path !== 'string') return null;
+  const ext = path.split('.').pop()?.toLowerCase();
+  if (!ext) return null;
+  const map = {
+    'ts': 'typescript', 'tsx': 'tsx',
+    'js': 'javascript', 'jsx': 'jsx',
+    'mjs': 'javascript', 'cjs': 'javascript',
+    'py': 'python',
+    'go': 'go',
+    'rs': 'rust',
+    'rb': 'ruby',
+    'java': 'java', 'kt': 'kotlin', 'scala': 'scala',
+    'c': 'c', 'h': 'c', 'cpp': 'cpp', 'cc': 'cpp', 'cxx': 'cpp', 'hpp': 'cpp',
+    'cs': 'csharp',
+    'php': 'php',
+    'swift': 'swift',
+    'dart': 'dart',
+    'lua': 'lua',
+    'r': 'r',
+    'pl': 'perl',
+    'hs': 'haskell',
+    'ex': 'elixir', 'exs': 'elixir',
+    'erl': 'erlang',
+    'clj': 'clojure',
+    'sql': 'sql',
+    'sh': 'bash', 'bash': 'bash', 'zsh': 'bash',
+    'ps1': 'powershell',
+    'html': 'html', 'htm': 'html',
+    'css': 'css', 'scss': 'scss', 'sass': 'sass', 'less': 'less',
+    'json': 'json', 'jsonc': 'json',
+    'yaml': 'yaml', 'yml': 'yaml',
+    'toml': 'toml',
+    'xml': 'xml',
+    'md': 'markdown', 'markdown': 'markdown',
+    'txt': null,
+    'log': null,
+    'env': null,
+    'dockerfile': 'dockerfile',
+    'makefile': 'makefile',
+    'cmake': 'cmake',
+    'proto': 'protobuf',
+    'graphql': 'graphql',
+    'vue': 'xml',
+    'svelte': 'xml',
+    'zig': 'zig',
+    'nim': 'nim',
+    'v': 'verilog',
+    'tf': 'hcl',
+    'sol': 'solidity',
+    'zig': 'zig',
+    'sbt': 'scala',
+  };
+  return map[ext] || null;
+}
+
 // ===== WS Message Handler =====
 export function onWSMessage(msg) {
   const data = msg.data;
@@ -195,7 +259,12 @@ function clearEmptyState() {
 export function addUserMessage(content) {
   clearEmptyState();
   const text = typeof content === 'string' ? content :
-               Array.isArray(content) ? content.filter(c => c.type === 'text').map(c => typeof c.text === 'string' ? c.text : String(c.text ?? '')).join('') : '';
+               Array.isArray(content) ? content.filter(c => c.type === 'text').map(c => {
+                 if (typeof c.text === 'string') return c.text;
+                 if (c.text === null || c.text === undefined) return '';
+                 if (typeof c.text === 'object') return JSON.stringify(c.text, null, 2);
+                 return String(c.text ?? '');
+               }).join('') : '';
   if (!text) return;
 
   const row = document.createElement('div');
@@ -332,6 +401,20 @@ function endToolCall(ev) {
   const argsPreview = toolEl.querySelector('.tool-args-preview');
   if (argsText) argsText.textContent = argsStr.length > 200 ? argsStr.substring(0, 200) + '...' : argsStr;
   if (argsPreview) argsPreview.textContent = argsStr.length > 50 ? argsStr.substring(0, 50) + '...' : argsStr;
+
+  // Detect language from file path for read tool results
+  const toolName = ev.toolCall.name || '';
+  if (toolName === 'read' && argsStr) {
+    try {
+      const parsed = typeof args === 'string' ? JSON.parse(args) : args;
+      if (parsed && parsed.path) {
+        const lang = detectLanguageFromPath(parsed.path);
+        if (lang) {
+          toolCallLanguages.set(toolId, lang);
+        }
+      }
+    } catch {}
+  }
 }
 
 export function addToolResult(msg) {
@@ -341,13 +424,30 @@ export function addToolResult(msg) {
   let content = '';
   if (msg.content) {
     if (typeof msg.content === 'string') content = msg.content;
-    else if (Array.isArray(msg.content)) content = msg.content.filter(c => c.type === 'text').map(c => typeof c.text === 'string' ? c.text : String(c.text ?? '')).join('');
+    else if (Array.isArray(msg.content)) content = msg.content.filter(c => c.type === 'text').map(c => {
+      if (typeof c.text === 'string') return c.text;
+      if (c.text === null || c.text === undefined) return '';
+      if (typeof c.text === 'object') return JSON.stringify(c.text, null, 2);
+      return String(c.text ?? '');
+    }).join('');
   }
+
+  // Unescape JSON strings for display - handles \n, \t, \" etc in tool results
+  content = unescapeJsonString(content);
 
   const row = document.createElement('div');
   row.className = 'flex flex-col items-start animate-fadeIn w-full';
   const borderColor = isError ? '#f38ba8' : '#585b70';
   const headerBg = isError ? 'color-mix(in srgb, #f38ba8 15%, #313244)' : 'color-mix(in srgb, #f9e2af 15%, #313244)';
+
+  // Apply syntax highlighting for read tool results using stored language
+  const lang = toolCallLanguages.get(msg.toolCallId || '');
+  let contentHTML;
+  if (toolName === 'read' && lang) {
+    contentHTML = highlightCode(content || '(no output)', lang);
+  } else {
+    contentHTML = escapeHTML(content || '(no output)');
+  }
 
   row.innerHTML = `
     <div class="w-full max-w-[85%] rounded-xl overflow-hidden border border-ctp-surface0" style="border-color:${borderColor}">
@@ -359,7 +459,7 @@ export function addToolResult(msg) {
       </button>
       <div class="thinking-body hidden border-t border-ctp-surface0">
         <div class="p-3 text-xs overflow-x-auto" style="background:color-mix(in srgb, #1e1e2e 50%, #11111b);">
-          <pre class="font-mono text-[11px] whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto">${escapeHTML(content || '(no output)')}</pre>
+          <pre class="font-mono text-[11px] whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto">${contentHTML}</pre>
         </div>
       </div>
     </div>
@@ -383,7 +483,10 @@ function renderLegacyMessage(data) {
   if (msg.content && msg.content.length > 0) {
     msg.content.forEach((block) => {
       if (block.type === 'text') {
-        bubbleContent += `<div class="prose-markdown">${formatText(block.text || '')}</div>`;
+        const textContent = typeof block.text === 'string' ? block.text :
+                           block.text === null || block.text === undefined ? '' :
+                           typeof block.text === 'object' ? JSON.stringify(block.text, null, 2) : String(block.text);
+        bubbleContent += `<div class="prose-markdown">${formatText(textContent)}</div>`;
       } else if (block.type === 'thinking') {
         const t = block.thinking || '';
         bubbleContent += `
@@ -404,6 +507,19 @@ function renderLegacyMessage(data) {
         const name = block.toolCallName || block.name || 'unknown';
         let argsStr = '';
         if (block.arguments) argsStr = typeof block.arguments === 'string' ? block.arguments : JSON.stringify(block.arguments, null, 2);
+
+        // Store language for tool call
+        const toolId = block.id || '';
+        if (name === 'read' && argsStr) {
+          try {
+            const parsed = typeof block.arguments === 'string' ? JSON.parse(block.arguments) : block.arguments;
+            if (parsed && parsed.path) {
+              const lang = detectLanguageFromPath(parsed.path);
+              if (lang) toolCallLanguages.set(toolId, lang);
+            }
+          } catch {}
+        }
+
         bubbleContent += `
           <div class="rounded-lg overflow-hidden border border-ctp-surface0 mb-2" style="background:color-mix(in srgb, #fab387 10%, #313244)">
             <button class="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer" onclick="toggleCollapse(this)">
@@ -415,6 +531,51 @@ function renderLegacyMessage(data) {
             <div class="thinking-body hidden border-t border-ctp-surface0">
               <div class="p-3 text-xs" style="background:color-mix(in srgb, #1e1e2e 50%, #11111b);">
                 <pre class="font-mono text-[11px] whitespace-pre-wrap break-words max-h-[300px] overflow-y-auto">${escapeHTML(argsStr)}</pre>
+              </div>
+            </div>
+          </div>`;
+      } else if (block.type === 'toolResult') {
+        // Tool result in legacy message - apply syntax highlighting
+        const trToolName = msg.toolName || block.toolName || 'unknown';
+        let trContent = '';
+        if (block.content) {
+          if (typeof block.content === 'string') trContent = block.content;
+          else if (Array.isArray(block.content)) trContent = block.content.filter(c => c.type === 'text').map(c => {
+            if (typeof c.text === 'string') return c.text;
+            if (c.text === null || c.text === undefined) return '';
+            if (typeof c.text === 'object') return JSON.stringify(c.text, null, 2);
+            return String(c.text ?? '');
+          }).join('');
+        }
+
+        // Unescape JSON strings for display
+        trContent = unescapeJsonString(trContent);
+
+        // Look up language from stored toolCall info
+        const trToolCallId = msg.toolCallId || block.toolCallId || '';
+        const trLang = toolCallLanguages.get(trToolCallId);
+        let contentHTML;
+        if (trToolName === 'read' && trLang) {
+          contentHTML = highlightCode(trContent || '(no output)', trLang);
+        } else {
+          contentHTML = escapeHTML(trContent || '(no output)');
+        }
+
+        const trIsError = msg.isError || block.isError || false;
+        const trBorderColor = trIsError ? '#f38ba8' : '#585b70';
+        const trHeaderBg = trIsError ? 'color-mix(in srgb, #f38ba8 15%, #313244)' : 'color-mix(in srgb, #f9e2af 15%, #313244)';
+
+        bubbleContent += `
+          <div class="w-full max-w-[85%] rounded-xl overflow-hidden border border-ctp-surface0" style="border-color:${trBorderColor}">
+            <button class="w-full flex items-center gap-2 px-3 py-2 text-xs cursor-pointer" style="background:${trHeaderBg}" onclick="toggleCollapse(this)">
+              <span class="transition-transform duration-200 text-[10px]">▶</span>
+              <span>📎</span>
+              <span class="font-semibold ${trIsError ? 'text-ctp-red' : 'text-ctp-yellow'}">${escapeHTML(trToolName)}</span>
+              ${trIsError ? '<span class="text-ctp-red text-[10px] ml-auto">Error</span>' : '<span class="text-ctp-overlay0 text-[10px] ml-auto">Result</span>'}
+            </button>
+            <div class="thinking-body hidden border-t border-ctp-surface0">
+              <div class="p-3 text-xs overflow-x-auto" style="background:color-mix(in srgb, #1e1e2e 50%, #11111b);">
+                <pre class="font-mono text-[11px] whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto">${contentHTML}</pre>
               </div>
             </div>
           </div>`;

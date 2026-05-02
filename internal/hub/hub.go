@@ -27,21 +27,21 @@ type SubscribeCallback func(sessionID string, client *Client)
 
 // Hub manages all connected clients and distributes events.
 type Hub struct {
-	clients            map[*Client]bool
-	mu                 sync.RWMutex
-	register           chan *Client
-	unregister         chan *Client
-	broadcast          chan []byte
-	subscribeCallback  SubscribeCallback
+	clients           map[*Client]bool
+	mu                sync.RWMutex
+	register          chan *Client
+	unregister        chan *Client
+	broadcast         chan []byte
+	subscribeCallback SubscribeCallback
 }
 
 // New creates a new Hub.
 func New() *Hub {
 	return &Hub{
-		clients:    make(map[*Client]bool),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		broadcast:  make(chan []byte, 256),
+		clients:      make(map[*Client]bool),
+		register:     make(chan *Client),
+		unregister:   make(chan *Client),
+		broadcast:    make(chan []byte, 256),
 	}
 }
 
@@ -72,14 +72,12 @@ func (h *Hub) Run() {
 		case msg := <-h.broadcast:
 			h.mu.RLock()
 			for client := range h.clients {
-				// Check if client wants this event
 				if !client.wantsMessage(msg) {
 					continue
 				}
 				select {
 				case client.send <- msg:
 				default:
-					// Slow client, skip
 				}
 			}
 			h.mu.RUnlock()

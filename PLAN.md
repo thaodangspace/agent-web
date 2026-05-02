@@ -1,31 +1,41 @@
 # Agent Web — Go Project Plan
 
 ## Goal
-Watch `.pi/agent/sessions/` for JSONL file changes and stream events in real-time to browser clients via WebSocket.
+Watch `.pi/agent/sessions/` for JSONL file changes and stream events in real-time to browser clients via WebSocket. **Plus: Chat with sessions via Pi RPC mode.**
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     Browser Client                       │
-│  (React/Vite — dashboard showing sessions & messages)   │
-└──────────────────────┬──────────────────────────────────┘
-                       │ WebSocket (ws://localhost:8080/ws)
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          Browser Client                                   │
+│  (Chat UI — session list, message stream, chat input, RPC controls)      │
+└──────────────────────┬───────────────────────────────────────────────────┘
+                       │ WebSocket (ws://localhost:8081/ws)
+                       │ REST API (/api/rpc/*)
                        ▼
-┌─────────────────────────────────────────────────────────┐
-│                    Go Server                             │
-│                                                          │
-│  ┌──────────────┐    ┌──────────────┐    ┌────────────┐ │
-│  │  File Watcher│───►│  JSONL Parser│───►│  WS Hub    │ │
-│  │  (fsnotify)  │    │  (decoder)   │    │  (broadcast│ │
-│  │              │    │              │    │   clients) │ │
-│  └──────────────┘    └──────────────┘    └────────────┘ │
-│         │                                         ▲     │
-│         ▼                                         │     │
-│  ~/.pi/agent/sessions/                            │     │
-│  └─ <project>/                                    │     │
-│     └─ *.jsonl ───────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                            Go Server                                      │
+│                                                                           │
+│  ┌──────────────┐    ┌──────────────┐    ┌────────────┐                  │
+│  │  File Watcher│───►│  JSONL Parser│───►│  WS Hub    │                  │
+│  │  (fsnotify)  │    │  (decoder)   │    │  (broadcast│                  │
+│  │              │    │              │    │   clients) │                  │
+│  └──────────────┘    └──────────────┘    └─────┬──────┘                  │
+│         │                                       │ RPC events             │
+│         ▼                                       ▼                        │
+│  ~/.pi/agent/sessions/                     ┌────────────┐                │
+│  └─ <project>/                             │  RPC Mgr   │                │
+│     └─ *.jsonl                             │  (map of   │                │
+│                                              │ sessions) │                │
+│                                              └─────┬─────┘                │
+│                                                    │ spawn pi --mode rpc  │
+│                                                    ▼                      │
+│                                          ┌──────────────────┐            │
+│                                          │ pi --mode rpc    │            │
+│                                          │ --session <path> │            │
+│                                          │ (subprocess)     │            │
+│                                          └──────────────────┘            │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Project Structure
@@ -41,41 +51,50 @@ agent-web/
 │   ├── jsonl/
 │   │   ├── types.go             # Go structs for JSONL events
 │   │   └── decoder.go           # JSONL line-by-line decoder
+│   ├── rpc/
+│   │   └── rpc.go               # Pi RPC subprocess manager
 │   ├── hub/
 │   │   └── hub.go               # WebSocket hub (broadcast, subscribe)
 │   └── server/
-│       ├── server.go            # HTTP + WebSocket server
-│       └── static.go            # Serve embedded static files
-├── web/
-│   └── static/
-│       └── index.html           # Simple dashboard (initial)
+│       ├── server.go            # HTTP + WebSocket + RPC REST API
+│       └── static/
+│           └── index.html       # Chat UI dashboard
 ├── go.mod
 ├── go.sum
 └── PLAN.md
 ```
 
-## Data Flow
+## RPC Chat Flow
 
-1. **Watcher** scans `~/.pi/agent/sessions/` recursively
-2. On new/modified `.jsonl` files → reads new lines (tracks offset per file)
-3. **JSONL Decoder** parses each line into typed events (`SessionEvent`, `ModelChangeEvent`, `ThinkingLevelChangeEvent`, `MessageEvent`)
-4. **Hub** broadcasts events to all connected WebSocket clients
-5. Clients subscribe to:
-   - All sessions (global stream)
-   - Specific session by ID
-   - Specific project/cwd
+1. **User selects a session** in the sidebar → server finds the JSONL file
+2. **User clicks "Start RPC"** → server spawns `pi --mode rpc --session <path>`
+3. **User types a message** → server sends `{"type":"prompt","message":"..."}` via stdin
+4. **Pi streams events** → server reads JSONL from stdout, broadcasts via WebSocket
+5. **Browser renders** streaming text, thinking blocks, tool calls, tool results
+6. **User can send more messages** while streaming (queued with `streamingBehavior: "steer"`)
+7. **User clicks "Stop RPC"** → server sends SIGINT, waits for graceful shutdown
+
+## REST API
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/sessions` | GET | List all sessions |
+| `/api/sessions/<id>` | GET | Get session info |
+| `/api/rpc/start` | POST | Start RPC session |
+| `/api/rpc/stop` | POST | Stop RPC session |
+| `/api/rpc/send` | POST | Send command to RPC |
+| `/api/rpc/status` | GET | Get RPC session statuses |
 
 ## WebSocket Protocol
 
-### Server → Client (events)
+### Server → Client
 ```json
-{"type":"event","session":"<id>","project":"<cwd>","data":{...jsonl-event...}}
-{"type":"session_list","sessions":[{...}]}
+{"type":"event","session_id":"...","data":{...jsonl-event...}}
 ```
 
 ### Client → Server
 ```json
-{"type":"subscribe","session_id":"<optional>","project":"<optional>"}
+{"type":"subscribe","session_id":"<optional>"}
 {"type":"unsubscribe","session_id":"<optional>"}
 {"type":"ping"}
 ```
@@ -84,25 +103,13 @@ agent-web/
 
 - `github.com/fsnotify/fsnotify` — file system notifications
 - `github.com/gorilla/websocket` — WebSocket support
-- Standard library: `encoding/json`, `net/http`, `os`, `path/filepath`
+- Standard library: `os/exec`, `encoding/json`, `net/http`, `bufio`
 
-## Phases
+## Running
 
-### Phase 1: Core Go Server (this step)
-- [x] JSONL type definitions
-- [ ] JSONL decoder with offset tracking
-- [ ] File watcher (fsnotify)
-- [ ] WebSocket hub
-- [ ] HTTP + WS server
-- [ ] Basic main.go entry point
+```bash
+make run          # Build + run on :8081
+make run-debug    # Run with go run on :8080
+```
 
-### Phase 2: Dashboard UI
-- Simple HTML/JS dashboard
-- Session list sidebar
-- Real-time message stream view
-- Filter by session/project
-
-### Phase 3: Features
-- Replay existing session history
-- Search/filter messages
-- Session metadata display
+Then open http://localhost:8081
