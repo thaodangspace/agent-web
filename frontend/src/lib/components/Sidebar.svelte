@@ -4,7 +4,64 @@
   import { selectSession } from '$lib/actions/session.js';
 
   let { onNewSession } = $props();
+
+  // Expanded project groups state
+  let expandedProjects = $state({});
+
+  // Computed grouped sessions: sorted alphabetically by project, sessions within sorted by timestamp (newest first)
+  let groupedSessions = $derived.by(() => {
+    const list = $sessions;
+    const groups = {};
+    for (const session of list) {
+      if (!groups[session.project]) {
+        groups[session.project] = [];
+      }
+      groups[session.project].push(session);
+    }
+    return Object.keys(groups)
+      .sort()
+      .map(project => ({
+        project,
+        sessions: groups[project].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      }));
+  });
+
+  // Auto-expand group containing active session
+  $effect(() => {
+    const activeId = $activeSession;
+    if (activeId) {
+      for (const group of groupedSessions) {
+        if (group.sessions.some(s => s.id === activeId)) {
+          expandedProjects[group.project] = true;
+          break;
+        }
+      }
+    }
+  });
+
+  function toggleProjectGroup(project) {
+    expandedProjects[project] = !expandedProjects[project];
+  }
 </script>
+
+{#snippet sessionItem(session)}
+  <div
+    class="session-item px-4 py-2.5 border-b border-ctp-surface0 cursor-pointer transition-colors duration-150 hover:bg-ctp-surface1 {$activeSession === session.id ? 'bg-ctp-surface0 border-l-[3px] border-ctp-blue' : ''}"
+    onclick={() => selectSession(session.id)}
+  >
+    <div class="flex items-center justify-between">
+      <div class="text-xs text-ctp-text">{session.project}</div>
+      {#if session.last_message_time}
+        <div class="text-[10px] text-ctp-overlay0">{session.last_message_time}</div>
+      {/if}
+    </div>
+    <div class="text-[11px] text-ctp-overlay1 break-all">{session.id}</div>
+    <div class="text-[10px] text-ctp-overlay0 mt-0.5">{session.cwd}</div>
+    {#if session.model}
+      <div class="text-[10px] text-ctp-blue mt-0.5">{session.model}</div>
+    {/if}
+  </div>
+{/snippet}
 
 <div class="sidebar w-[280px] h-full bg-ctp-mantle border-r border-ctp-surface0 flex flex-col">
   <div class="p-4 border-b border-ctp-surface0 text-sm font-semibold text-ctp-blue flex items-center justify-between">
@@ -32,24 +89,28 @@
       <div class="flex items-center justify-center h-full text-ctp-overlay0 text-sm">
         No sessions yet
       </div>
-    {:else}
-      {#each $sessions as session (session.id)}
-        <div
-          class="session-item px-4 py-2.5 border-b border-ctp-surface0 cursor-pointer transition-colors duration-150 hover:bg-ctp-surface1 {$activeSession === session.id ? 'bg-ctp-surface0 border-l-[3px] border-ctp-blue' : ''}"
-          onclick={() => selectSession(session.id)}
-        >
-          <div class="flex items-center justify-between">
-            <div class="text-xs text-ctp-text">{session.project}</div>
-            {#if session.last_message_time}
-              <div class="text-[10px] text-ctp-overlay0">{session.last_message_time}</div>
-            {/if}
-          </div>
-          <div class="text-[11px] text-ctp-overlay1 break-all">{session.id}</div>
-          <div class="text-[10px] text-ctp-overlay0 mt-0.5">{session.cwd}</div>
-          {#if session.model}
-            <div class="text-[10px] text-ctp-blue mt-0.5">{session.model}</div>
+    {:else if $groupByProject}
+      <!-- Grouped by project -->
+      {#each groupedSessions as { project, sessions: projectSessions } (project)}
+        <div class="project-group">
+          <button
+            class="w-full px-4 py-2 text-xs font-semibold text-ctp-subtext0 flex items-center justify-between hover:bg-ctp-surface1 cursor-pointer border-b border-ctp-surface0"
+            onclick={() => toggleProjectGroup(project)}
+          >
+            <span>{project} ({projectSessions.length})</span>
+            <span>{expandedProjects[project] ? '▼' : '▶'}</span>
+          </button>
+          {#if expandedProjects[project]}
+            {#each projectSessions as session (session.id)}
+              {@render sessionItem(session)}
+            {/each}
           {/if}
         </div>
+      {/each}
+    {:else}
+      <!-- Flat list -->
+      {#each $sessions as session (session.id)}
+        {@render sessionItem(session)}
       {/each}
     {/if}
   </div>
