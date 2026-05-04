@@ -85,8 +85,27 @@ func (h *Hub) Run() {
 	}
 }
 
-// SubscribeWatcher reads events from the watcher and broadcasts them.
+// SubscribeWatcher reads events from the pi-agent watcher and broadcasts them.
 func (h *Hub) SubscribeWatcher(w *watcher.Watcher) {
+	for ev := range w.Events() {
+		msg := WSMessage{
+			Type:      "event",
+			SessionID: ev.SessionID,
+			Project:   ev.Project,
+			Data:      ev.Data,
+			Time:      ev.Timestamp,
+		}
+		data, err := json.Marshal(msg)
+		if err != nil {
+			log.Printf("[hub] marshal error: %v", err)
+			continue
+		}
+		h.broadcast <- data
+	}
+}
+
+// SubscribeClaudeWatcher reads events from the Claude Code watcher and broadcasts them.
+func (h *Hub) SubscribeClaudeWatcher(w *watcher.ClaudeWatcher) {
 	for ev := range w.Events() {
 		msg := WSMessage{
 			Type:      "event",
