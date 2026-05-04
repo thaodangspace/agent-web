@@ -274,3 +274,25 @@ func TestClaudeDecoder_Next(t *testing.T) {
 		t.Fatalf("expected EOF, got err=%v", err)
 	}
 }
+
+func TestNormalizeUser_DropsIsMeta(t *testing.T) {
+	// Skill-injected content arrives as a user message with isMeta:true.
+	// We drop it so the skill body doesn't render as user input.
+	input := `{
+		"type": "user",
+		"uuid": "meta-001",
+		"timestamp": "2026-05-04T14:43:10.386Z",
+		"isMeta": true,
+		"message": {
+			"role": "user",
+			"content": [
+				{"type": "text", "text": "Base directory for this skill: /tmp/skills/foo\n# Foo Skill\n..."}
+			]
+		}
+	}`
+
+	_, drop := newTestDecoder().normalizeUser(input)
+	if !drop {
+		t.Fatal("expected isMeta:true user message to be dropped")
+	}
+}

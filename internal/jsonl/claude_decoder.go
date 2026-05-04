@@ -225,6 +225,9 @@ func (d *ClaudeDecoder) normalizeUser(raw string) (string, bool) {
 	if evt.Message == nil {
 		return "", true
 	}
+	if evt.IsMeta {
+		return "", true
+	}
 
 	// If content is a plain string, it's a regular user text message
 	if evt.Message.Content.IsString {
