@@ -385,3 +385,105 @@ func TestNormalizeUser_ToolResultUnknownToolName(t *testing.T) {
 		t.Errorf("expected toolName to be omitted when unknown, got %v", msg["toolName"])
 	}
 }
+
+func TestStripTaskNotificationUsage(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "no usage block",
+			input:    "simple result text",
+			expected: "simple result text",
+		},
+		{
+			name:     "usage block at end",
+			input:    "<task-notification>\n<result>Done. Written 29 lines.</result>\n<usage><total_tokens>11504</total_tokens><tool_uses>4</tool_uses><duration_ms>32062</duration_ms></usage>\n</task-notification>",
+			expected: "<task-notification>\n<result>Done. Written 29 lines.</result>\n</task-notification>",
+		},
+		{
+			name:     "usage block with newlines inside",
+			input:    "result text\n<usage>\n<total_tokens>100</total_tokens>\n</usage>",
+			expected: "result text\n",
+		},
+		{
+			name:     "usage block with no trailing whitespace",
+			input:    "result text<usage><total_tokens>100</total_tokens></usage>",
+			expected: "result text",
+		},
+		{
+			name:     "no usage block but has other tags",
+			input:    "<task-notification>\n<summary>Agent completed</summary>\n</task-notification>",
+			expected: "<task-notification>\n<summary>Agent completed</summary>\n</task-notification>",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripTaskNotificationUsage(tt.input)
+			if got != tt.expected {
+				t.Errorf("got %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeUser_TaskNotificationStripsUsage(t *testing.T) {
+	// Real-world task-notification result with leaked <usage> block
+	input := `{
+		"type": "user",
+		"uuid": "user-evt-003",
+		"parentUuid": "abc-123",
+		"timestamp": "2026-05-05T17:37:11.923Z",
+		"message": {
+			"role": "user",
+			"content": [
+				{
+					"type": "tool_result",
+					"content": "Done. Written 29 lines.\n\nTwo sessions covered:\n\n1. **44a4510e** (branch develop) — Removed @vc/library.\n\n2. **9fe2314b** (branch chore/remove-vc-page-lib) — Cleaned up 13 global npm packages.</result>\n<usage><total_tokens>11504</total_tokens><tool_uses>4</tool_uses><duration_ms>32062</duration_ms></usage>",
+					"tool_use_id": "toolu_8db585aa6b234a6ebd0e9672"
+				}
+			]
+		}
+	}`
+
+	dec := &ClaudeDecoder{toolNames: map[string]string{
+		"toolu_8db585aa6b234a6ebd0e9672": "Agent",
+	}}
+
+	out, drop := dec.normalizeUser(input)
+	if drop {
+		t.Fatal("expected not to drop")
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	msg := result["message"].(map[string]interface{})
+	content := msg["content"].(string)
+
+	// Should NOT contain the leaked <usage> block
+	if contains := containsStr(content, "<usage>"); contains {
+		t.Errorf("content should not contain <usage> block, got:\n%s", content)
+	}
+	// Should still contain the actual result text
+	if !containsStr(content, "Done. Written 29 lines.") {
+		t.Errorf("content should contain the result text")
+	}
+}
+
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

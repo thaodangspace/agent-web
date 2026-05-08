@@ -87,7 +87,7 @@
   <!-- Sidebar overlay (mobile) -->
   {#if isMobile}
     <div
-      class="sidebar-overlay"
+      class="fixed inset-0 bg-black/50 z-40"
       class:hidden={!$sidebarOpen}
       onclick={() => sidebarOpen.set(false)}
     ></div>
@@ -95,14 +95,15 @@
 
   <!-- Sidebar -->
   <div
-    class="sidebar h-full"
-    class:hidden={isMobile && !$sidebarOpen}
+    class="h-full fixed top-0 left-0 z-50 transition-transform duration-300 ease md:relative"
+    class:translate-x-0={isMobile && $sidebarOpen}
+    class:translate-x-[-280px]={isMobile && !$sidebarOpen}
   >
     <Sidebar onNewSession={showNewSessionModal} />
   </div>
 
   <!-- Main -->
-  <div class="flex-1 flex flex-col main-content">
+  <div class="flex-1 flex flex-col w-full min-w-0">
     <HeaderBar />
     <ChatArea />
   </div>
@@ -110,15 +111,3 @@
   <!-- New Session Modal -->
   <NewSessionModal />
 </div>
-
-<style>
-  @media (min-width: 769px) {
-    .sidebar {
-      position: relative !important;
-      left: 0 !important;
-    }
-    .sidebar-overlay {
-      display: none !important;
-    }
-  }
-</style>

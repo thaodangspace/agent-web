@@ -5,6 +5,18 @@ import { fetchSessions } from '$lib/api/sessions.js';
 import { detectLanguageFromPath } from '$lib/utils/language.js';
 import { unescapeJsonString } from '$lib/utils/json.js';
 
+// Fallback for crypto.randomUUID() in non-secure contexts
+function generateId() {
+  if (typeof crypto?.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Generate a UUID v4 using Math.random as fallback
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 // Deduplication
 const seenEvents = new Set();
 
@@ -55,7 +67,17 @@ export function onWSMessage(msg) {
     case 'message_end': {
       const msg = data.message;
       if (msg?.role === 'user') {
-        addUserMessage(msg.content);
+        // Extract images from content array (pi stores images as content blocks)
+        const content = msg.content || [];
+        const contentImages = Array.isArray(content)
+          ? content.filter(c => c.type === 'image').map(c => ({ type: 'image', data: c.data, mimeType: c.mimeType || 'image/png' }))
+          : [];
+        // Merge with msg.images if present (some paths may use msg.images directly)
+        const msgImages = msg.images || [];
+        const allImages = contentImages.length > 0 || msgImages.length > 0
+          ? [...contentImages, ...msgImages]
+          : [];
+        addUserMessage(msg.content, allImages);
       } else if (msg?.role === 'toolResult') {
         addToolResult(msg);
       }
@@ -68,16 +90,22 @@ export function onWSMessage(msg) {
   }
 }
 
-function addUserMessage(content) {
+function addUserMessage(content, images = []) {
   const text = typeof content === 'string' ? content : extractText(content);
-  if (!text) return;
+  if (!text && images.length === 0) return;
 
-  messages.update(msgs => [...msgs, {
-    id: crypto.randomUUID(),
+  const msgObj = {
+    id: generateId(),
     role: 'user',
-    content: text,
+    content: text || '',
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  }]);
+  };
+
+  if (images && images.length > 0) {
+    msgObj.images = images;
+  }
+
+  messages.update(msgs => [...msgs, msgObj]);
 }
 
 let currentAssistantId = null;
@@ -85,7 +113,7 @@ let currentAssistantId = null;
 function appendToCurrentAssistant(ev) {
   if (ev.type === 'text_delta') {
     if (!currentAssistantId) {
-      const id = crypto.randomUUID();
+      const id = generateId();
       currentAssistantId = id;
       messages.update(msgs => [...msgs, {
         id,
@@ -175,7 +203,7 @@ function addToolResult(msg) {
   const filePath = extractFilePath(msg);
 
   messages.update(msgs => [...msgs, {
-    id: crypto.randomUUID(),
+    id: generateId(),
     role: 'toolResult',
     toolName: toolName,
     content: content || '(no output)',
@@ -199,13 +227,21 @@ function renderLegacyMessage(data) {
     const text = Array.isArray(content)
       ? content.filter(c => c.type === 'text').map(c => typeof c.text === 'string' ? c.text : String(c.text ?? '')).join('')
       : String(content);
-    if (text) {
-      messages.update(msgs => [...msgs, {
-        id: crypto.randomUUID(),
+
+    // Extract images from content blocks
+    const images = Array.isArray(content)
+      ? content.filter(c => c.type === 'image').map(c => ({ type: 'image', data: c.data, mimeType: c.mimeType || 'image/png' }))
+      : [];
+
+    if (text || images.length > 0) {
+      const msgObj = {
+        id: generateId(),
         role: 'user',
         content: text,
         timestamp: time,
-      }]);
+      };
+      if (images.length > 0) msgObj.images = images;
+      messages.update(msgs => [...msgs, msgObj]);
     }
   } else if (role === 'assistant') {
     const content = msg.content || [];
@@ -227,7 +263,7 @@ function renderLegacyMessage(data) {
     });
 
     messages.update(msgs => [...msgs, {
-      id: crypto.randomUUID(),
+      id: generateId(),
       role: 'assistant',
       rawText,
       thinking,
@@ -244,7 +280,7 @@ function renderLegacyMessage(data) {
     content = unescapeJsonString(content);
 
     messages.update(msgs => [...msgs, {
-      id: crypto.randomUUID(),
+      id: generateId(),
       role: 'toolResult',
       toolName: msg.toolName || 'unknown',
       content: content || '(no output)',
@@ -259,7 +295,7 @@ function renderLegacyMessage(data) {
 
 export function addSystemMessage(text) {
   messages.update(msgs => [...msgs, {
-    id: crypto.randomUUID(),
+    id: generateId(),
     role: 'system',
     content: text,
   }]);

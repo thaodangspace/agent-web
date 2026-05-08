@@ -17,6 +17,7 @@ type Client struct {
 	hub       *Hub
 	conn      *websocket.Conn
 	send      chan []byte
+	closed    chan struct{} // closed when client disconnects
 	subscribe map[string]bool // session IDs to filter by (empty = all)
 	project   string          // project filter (empty = all)
 }
@@ -64,6 +65,7 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
+				close(client.closed)
 				close(client.send)
 			}
 			h.mu.Unlock()
@@ -156,6 +158,7 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 		hub:       hub,
 		conn:      conn,
 		send:      make(chan []byte, 256),
+		closed:    make(chan struct{}),
 		subscribe: make(map[string]bool),
 	}
 }
@@ -163,6 +166,11 @@ func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 // Send returns the client's send channel for writing messages.
 func (c *Client) Send() chan []byte {
 	return c.send
+}
+
+// Closed returns a channel that's closed when the client disconnects.
+func (c *Client) Closed() <-chan struct{} {
+	return c.closed
 }
 
 // wantsMessage checks if this client should receive the given broadcast message.

@@ -67,7 +67,7 @@
   </div>
 {/snippet}
 
-<div class="sidebar w-[280px] h-full bg-ctp-mantle border-r border-ctp-surface0 flex flex-col">
+<div class="w-[280px] h-full bg-ctp-mantle border-r border-ctp-surface0 flex flex-col">
   <div class="p-4 border-b border-ctp-surface0 text-sm font-semibold text-ctp-blue flex items-center justify-between">
     <span>⚡ Sessions</span>
     <div class="flex items-center gap-2">

@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -129,7 +131,15 @@ func (s *Server) Start(addr string) error {
 	mux.HandleFunc("/api/rpc/stop", s.handleRPCStop)
 	mux.HandleFunc("/api/rpc/send", s.handleRPCSend)
 	mux.HandleFunc("/api/rpc/get_state", s.handleRPCGetState)
+	mux.HandleFunc("/api/rpc/get_commands", s.handleRPCCOmmands)
+	mux.HandleFunc("/api/rpc/get_models", s.handleRPCGetModels)
+	mux.HandleFunc("/api/rpc/set_model", s.handleRPCSetModel)
+	mux.HandleFunc("/api/rpc/cycle_model", s.handleRPCCycleModel)
 	mux.HandleFunc("/api/rpc/status", s.handleRPCStatus)
+
+	// Image upload
+	mux.HandleFunc("/api/images/upload", s.handleImageUpload)
+	mux.HandleFunc("/api/images/view", s.handleImageView)
 
 	// Static files (Svelte SPA with fallback)
 	staticSub, err := fs.Sub(staticFS, "static/dist")
@@ -509,6 +519,45 @@ func (s *Server) handleRPCStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleRPCCOmmands sends a get_commands command to an RPC session and returns the available commands.
+func (s *Server) handleRPCCOmmands(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.SessionID == "" {
+		http.Error(w, "missing session_id", http.StatusBadRequest)
+		return
+	}
+
+	sess := s.rpcMgr.Get(req.SessionID)
+	if sess == nil || !sess.IsRunning() {
+		http.Error(w, "rpc session not running", http.StatusNotFound)
+		return
+	}
+
+	resp, err := sess.SendCommandAndWait(map[string]interface{}{
+		"type": "get_commands",
+	}, 5*time.Second)
+	if err != nil {
+		log.Printf("[server] rpc get_commands error: %v", err)
+		http.Error(w, fmt.Sprintf("get_commands failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
 // handleRPCGetState sends a get_state command to an RPC session and returns the response.
 func (s *Server) handleRPCGetState(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -547,6 +596,333 @@ func (s *Server) handleRPCGetState(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(resp)
 	_ = resp
+}
+
+// handleRPCGetModels sends a get_available_models command and returns the model list.
+func (s *Server) handleRPCGetModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.SessionID == "" {
+		http.Error(w, "missing session_id", http.StatusBadRequest)
+		return
+	}
+
+	sess := s.rpcMgr.Get(req.SessionID)
+	if sess == nil || !sess.IsRunning() {
+		http.Error(w, "rpc session not running", http.StatusNotFound)
+		return
+	}
+
+	resp, err := sess.SendCommandAndWait(map[string]interface{}{
+		"type": "get_available_models",
+	}, 10*time.Second)
+	if err != nil {
+		log.Printf("[server] rpc get_available_models error: %v", err)
+		http.Error(w, fmt.Sprintf("get_available_models failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+// handleRPCSetModel sends a set_model command to switch the active model.
+func (s *Server) handleRPCSetModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		SessionID string `json:"session_id"`
+		Provider  string `json:"provider"`
+		ModelID   string `json:"model_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.SessionID == "" || req.Provider == "" || req.ModelID == "" {
+		http.Error(w, "missing session_id, provider, or model_id", http.StatusBadRequest)
+		return
+	}
+
+	sess := s.rpcMgr.Get(req.SessionID)
+	if sess == nil || !sess.IsRunning() {
+		http.Error(w, "rpc session not running", http.StatusNotFound)
+		return
+	}
+
+	resp, err := sess.SendCommandAndWait(map[string]interface{}{
+		"type":    "set_model",
+		"provider": req.Provider,
+		"modelId": req.ModelID,
+	}, 10*time.Second)
+	if err != nil {
+		log.Printf("[server] rpc set_model error: %v", err)
+		http.Error(w, fmt.Sprintf("set_model failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+// handleRPCCycleModel sends a cycle_model command to switch to the next model.
+func (s *Server) handleRPCCycleModel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.SessionID == "" {
+		http.Error(w, "missing session_id", http.StatusBadRequest)
+		return
+	}
+
+	sess := s.rpcMgr.Get(req.SessionID)
+	if sess == nil || !sess.IsRunning() {
+		http.Error(w, "rpc session not running", http.StatusNotFound)
+		return
+	}
+
+	resp, err := sess.SendCommandAndWait(map[string]interface{}{
+		"type": "cycle_model",
+	}, 10*time.Second)
+	if err != nil {
+		log.Printf("[server] rpc cycle_model error: %v", err)
+		http.Error(w, fmt.Sprintf("cycle_model failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(resp)
+}
+
+// handleImageUpload handles image file uploads for RPC.
+// Saves images to ~/.pi/images/ and returns the absolute path.
+func (s *Server) handleImageUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Limit to 10MB
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, fmt.Sprintf("file too large or invalid form: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		http.Error(w, "missing image file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	// Validate MIME type
+	mimeType := header.Header.Get("Content-Type")
+	if !strings.HasPrefix(mimeType, "image/") {
+		http.Error(w, "not an image file", http.StatusBadRequest)
+		return
+	}
+
+	// Determine extension
+	ext := filepath.Ext(header.Filename)
+	if ext == "" {
+		ext = imageExtFromMime(mimeType)
+	}
+
+	// Create ~/.pi/images/ directory
+	imagesDir, err := resolvePiImagesDir()
+	if err != nil {
+		log.Printf("[server] image upload: failed to resolve images dir: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if err := os.MkdirAll(imagesDir, 0755); err != nil {
+		log.Printf("[server] image upload: failed to create images dir: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Generate unique filename
+	b := make([]byte, 4)
+	rand.Read(b)
+	filename := fmt.Sprintf("%d_%08x%s", time.Now().UnixMilli(), b, ext)
+	outputPath := filepath.Join(imagesDir, filename)
+
+	// Write file
+	out, err := os.Create(outputPath)
+	if err != nil {
+		log.Printf("[server] image upload: failed to create file: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, file); err != nil {
+		os.Remove(outputPath)
+		log.Printf("[server] image upload: write error: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[server] image uploaded: %s (%s, %d bytes)", outputPath, mimeType, header.Size)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"path":    outputPath,
+	})
+}
+
+// resolvePiImagesDir resolves ~/.pi/images/ to an absolute path.
+func resolvePiImagesDir() (string, error) {
+	usr, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(usr.HomeDir, ".pi", "images"), nil
+}
+
+// imageExtFromMime maps MIME types to file extensions.
+func imageExtFromMime(mimeType string) string {
+	switch mimeType {
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
+	case "image/webp":
+		return ".webp"
+	case "image/bmp":
+		return ".bmp"
+	case "image/svg+xml":
+		return ".svg"
+	case "image/tiff":
+		return ".tiff"
+	default:
+		return ".png"
+	}
+}
+
+// handleImageView serves images from ~/.pi/images/ or clipboard temp paths.
+// The path is passed as a base64url-encoded query parameter: /api/images/view?p=<base64url>
+func (s *Server) handleImageView(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	encoded := r.URL.Query().Get("p")
+	if encoded == "" {
+		http.Error(w, "missing path parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Decode base64url (frontend strips padding, so use RawURLEncoding)
+	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		// Fall back to padded URLEncoding for backwards compatibility
+		decoded, err = base64.URLEncoding.DecodeString(encoded)
+		if err != nil {
+			http.Error(w, "invalid path encoding", http.StatusBadRequest)
+			return
+		}
+	}
+	imagePath := string(decoded)
+
+	absPath, err := filepath.Abs(imagePath)
+	if err != nil {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+
+	// Security: verify the path is under ~/.pi/images/ OR is a clipboard temp file
+	imagesDir, err := resolvePiImagesDir()
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	isPiImage := strings.HasPrefix(absPath, imagesDir+string(filepath.Separator))
+	isClipboardTemp := strings.HasPrefix(absPath, "/var/folders/") && strings.Contains(filepath.Base(absPath), "pi-clipboard-")
+
+	if !isPiImage && !isClipboardTemp {
+		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	}
+
+	// Validate file extension is an image
+	ext := strings.ToLower(filepath.Ext(absPath))
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff":
+		// okay
+	default:
+		http.Error(w, "not an image", http.StatusBadRequest)
+		return
+	}
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "image not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "read error", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	// Set cache headers (images are immutable once uploaded)
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	w.Header().Set("Content-Type", imageMimeFromExt(ext))
+	w.Write(data)
+}
+
+// imageMimeFromExt maps file extensions to MIME types.
+func imageMimeFromExt(ext string) string {
+	switch ext {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".webp":
+		return "image/webp"
+	case ".bmp":
+		return "image/bmp"
+	case ".svg":
+		return "image/svg+xml"
+	case ".tiff":
+		return "image/tiff"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 // ===== WebSocket =====
@@ -601,6 +977,11 @@ func (s *Server) onSubscribe(sessionID string, client *hub.Client) {
 			}
 
 			select {
+			case <-client.Closed():
+				return
+			default:
+			}
+			select {
 			case client.Send() <- data:
 			default:
 			}
@@ -634,6 +1015,11 @@ func (s *Server) onSubscribe(sessionID string, client *hub.Client) {
 				continue
 			}
 
+			select {
+			case <-client.Closed():
+				return
+			default:
+			}
 			select {
 			case client.Send() <- data:
 			default:

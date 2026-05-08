@@ -4,6 +4,22 @@ import { messages } from '$lib/stores/messages.svelte.js';
 import { startRPC, stopRPC, sendRPC } from '$lib/api/rpc.js';
 import { addSystemMessage } from '$lib/utils/events.js';
 
+/**
+ * Build the prompt text with injected image paths.
+ * The pi agent will use its read tool to view the referenced files.
+ */
+function buildPromptWithImages(text, imagePaths) {
+  if (!imagePaths || imagePaths.length === 0) return text || '';
+
+  const label = imagePaths.length === 1 ? 'Image attached' : 'Images attached';
+  const pathList = imagePaths.map(p => `  - ${p}`).join('\n');
+  const instruction = imagePaths.length === 1
+    ? '[Use the read tool to view the image before responding]'
+    : '[Use the read tool to view the images before responding]';
+
+  return `[${label}:\n${pathList}]\n${instruction}\n\n${text || 'What do you see?'}`;
+}
+
 export async function toggleRPC() {
   let currentActive = null;
   activeSession.subscribe(v => { currentActive = v; })();
@@ -39,8 +55,8 @@ export async function abortRPC() {
   }
 }
 
-export async function sendMessage(text) {
-  if (!text) return;
+export async function sendMessage(text, imagePaths = []) {
+  if (!text && imagePaths.length === 0) return;
 
   let currentActive = null;
   activeSession.subscribe(v => { currentActive = v; })();
@@ -56,7 +72,6 @@ export async function sendMessage(text) {
     let warnedSet = new Set();
     warnedSessions.subscribe(v => { warnedSet = new Set(v); })();
 
-    // Warn user on first send in this session
     if (!warnedSet.has(currentActive)) {
       warnedSet.add(currentActive);
       warnedSessions.set(warnedSet);
@@ -78,7 +93,10 @@ export async function sendMessage(text) {
   let currentStreaming = false;
   isStreaming.subscribe(v => { currentStreaming = v; })();
 
-  const cmd = { type: 'prompt', message: text };
+  // Build prompt with injected image paths
+  const fullText = buildPromptWithImages(text, imagePaths);
+
+  const cmd = { type: 'prompt', message: fullText };
   if (currentStreaming) cmd.streamingBehavior = 'steer';
 
   try {

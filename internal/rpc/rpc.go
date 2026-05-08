@@ -21,18 +21,20 @@ type EventHandler func(event json.RawMessage)
 
 // Session manages a single Pi RPC subprocess.
 type Session struct {
-	sessionID   string
-	sessionPath string
-	cwd         string
-	cmd         *exec.Cmd
-	stdin       io.WriteCloser
-	stdout      io.ReadCloser
-	stderr      io.ReadCloser
-	decoder     *JSONLDecoder
-	handler     EventHandler
-	mu          sync.Mutex
-	running     bool
-	quit        chan struct{}
+	sessionID    string
+	sessionPath  string
+	cwd          string
+	cmd          *exec.Cmd
+	stdin        io.WriteCloser
+	stdout       io.ReadCloser
+	stderr       io.ReadCloser
+	decoder      *JSONLDecoder
+	handler      EventHandler
+	mu           sync.Mutex
+	running      bool
+	quit         chan struct{}
+	pendingReqs  map[string]chan json.RawMessage
+	lastReqID    int
 }
 
 // JSONLDecoder reads LF-delimited JSON lines from a reader.
@@ -100,6 +102,7 @@ func NewSessionWithCWD(sessionID, sessionPath, cwd string, handler EventHandler)
 		cwd:         cwd,
 		handler:     handler,
 		quit:        make(chan struct{}),
+		pendingReqs: make(map[string]chan json.RawMessage),
 	}
 }
 
@@ -229,6 +232,54 @@ func (s *Session) SendCommand(cmd map[string]interface{}) error {
 	return nil
 }
 
+// SendCommandAndWait sends a command and waits for the response with a timeout.
+func (s *Session) SendCommandAndWait(cmd map[string]interface{}, timeout time.Duration) (json.RawMessage, error) {
+	s.mu.Lock()
+	if !s.running {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("session %s not running", s.sessionID)
+	}
+
+	s.lastReqID++
+	reqID := fmt.Sprintf("req-%d", s.lastReqID)
+	respCh := make(chan json.RawMessage, 1)
+	s.pendingReqs[reqID] = respCh
+	s.mu.Unlock()
+
+	cmd["id"] = reqID
+
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		s.mu.Lock()
+		delete(s.pendingReqs, reqID)
+		s.mu.Unlock()
+		return nil, fmt.Errorf("marshal: %w", err)
+	}
+
+	data = append(data, '\n')
+
+	s.mu.Lock()
+	_, err = s.stdin.Write(data)
+	s.mu.Unlock()
+
+	if err != nil {
+		s.mu.Lock()
+		delete(s.pendingReqs, reqID)
+		s.mu.Unlock()
+		return nil, fmt.Errorf("write stdin: %w", err)
+	}
+
+	select {
+	case resp := <-respCh:
+		return resp, nil
+	case <-time.After(timeout):
+		s.mu.Lock()
+		delete(s.pendingReqs, reqID)
+		s.mu.Unlock()
+		return nil, fmt.Errorf("timeout waiting for response to %s", reqID)
+	}
+}
+
 // IsRunning returns whether the session is active.
 func (s *Session) IsRunning() bool {
 	s.mu.Lock()
@@ -269,6 +320,33 @@ func (s *Session) readEvents() {
 		if err := json.Unmarshal(line, &check); err != nil {
 			log.Printf("[rpc] invalid JSON: %v", err)
 			continue
+		}
+
+		// Route responses to pending request channels
+		if evtType, ok := check["type"].(string); ok && evtType == "response" {
+			if reqID, ok := check["id"].(string); ok {
+				s.mu.Lock()
+				if respCh, hasWaiter := s.pendingReqs[reqID]; hasWaiter {
+					select {
+					case respCh <- json.RawMessage(line):
+					default:
+					}
+					delete(s.pendingReqs, reqID)
+				}
+				s.mu.Unlock()
+			}
+
+			// Log responses for debugging
+			cmd, _ := check["command"].(string)
+			success, _ := check["success"].(bool)
+			errMsg, _ := check["error"].(string)
+			if !success || cmd == "prompt" || cmd == "get_state" {
+				log.Printf("[rpc] response: session=%s command=%s success=%v error=%s", s.sessionID, cmd, success, errMsg)
+			}
+		} else if evtType == "agent_start" {
+			log.Printf("[rpc] event: session=%s type=%s", s.sessionID, evtType)
+		} else if evtType == "agent_end" {
+			log.Printf("[rpc] event: session=%s type=%s", s.sessionID, evtType)
 		}
 
 		if s.handler != nil {

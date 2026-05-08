@@ -47,6 +47,12 @@
 ::-webkit-scrollbar-thumb { background: #313244; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: #45475a; }
 
+/* Thin horizontal scrollbar for split scroll */
+.scrollbar-thin::-webkit-scrollbar { height: 6px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: #313244; border-radius: 3px; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #45475a; }
+
 /* Markdown prose (same as current .prose-markdown) */
 .prose-markdown { font-size: 13px; line-height: 1.7; color: #cdd6f4; }
 .prose-markdown p { margin: 0 0 0.6em 0; }
@@ -89,20 +95,19 @@
   background: color-mix(in srgb, #313244 30%, #1e1e2e);
 }
 
-/* highlight.js overrides */
-.hljs { background: transparent !important; padding: 0 !important; }
-pre .hljs { background: #11111b !important; padding: 0.75em 1em !important; border-radius: 6px; border: 1px solid #313244; }
+/* Code blocks */
+.prose-markdown pre code {
+  display: block;
+  background: #11111b;
+  padding: 0.75em 1em;
+  border-radius: 6px;
+  border: 1px solid #313244;
+  color: #cdd6f4;
+  overflow-x: auto;
+}
 
 /* Typing dots animation */
 .typing-dots span { animation: pulse 1.4s ease-in-out infinite; }
 .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
 .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
 
-/* Mobile sidebar */
-@media (max-width: 768px) {
-  .sidebar { position: fixed; top: 0; left: -280px; height: 100vh; z-index: 50; transition: left 0.3s ease; }
-  .sidebar.open { left: 0; }
-  .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40; }
-  .sidebar-overlay.open { display: block; }
-  .main-content { width: 100% !important; }
-}

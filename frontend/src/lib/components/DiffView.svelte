@@ -20,8 +20,8 @@
    * for inline character-level diff display.
    */
   function computeDiff(oldText, newText) {
-    const oldLines = oldText.split('\n');
-    const newLines = newText.split('\n');
+    const oldLines = (oldText ?? '').split('\n');
+    const newLines = (newText ?? '').split('\n');
 
     // Simple LCS-based diff
     const m = oldLines.length;
@@ -138,22 +138,154 @@
   }
 
   /**
-   * Compute inline character-level diff between two lines.
-   * Returns { prefix, oldMiddle, newMiddle, suffix } — all HTML-escaped.
+   * Escape code for HTML display.
    */
-  function computeInlineParts(oldLine, newLine) {
-    if (oldLine === undefined) return { prefix: escapeHTML(newLine), oldMiddle: '', newMiddle: '', suffix: '' };
-    if (newLine === undefined) return { prefix: escapeHTML(oldLine), oldMiddle: '', newMiddle: '', suffix: '' };
-    if (oldLine === newLine) return { prefix: escapeHTML(oldLine), oldMiddle: '', newMiddle: '', suffix: '' };
+  function highlight(line) {
+    return escapeHTML(line || '');
+  }
 
-    // Find common prefix
+  /**
+   * Given highlighted HTML and a raw text character range [start, end),
+   * extract the corresponding HTML by counting only raw characters.
+   */
+  function extractHighlightedRange(hlHtml, start, end) {
+    let pos = 0;
+    let i = 0;
+    const len = hlHtml.length;
+
+    // Skip to start
+    while (i < len && pos < start) {
+      if (hlHtml[i] === '<') {
+        // Skip entire tag
+        while (i < len && hlHtml[i] !== '>') i++;
+        i++;
+      } else {
+        // Check for &amp; &lt; &gt; entities
+        if (hlHtml.substring(i, i + 5) === '&amp;' || hlHtml.substring(i, i + 4) === '&lt;' || hlHtml.substring(i, i + 4) === '&gt;' || hlHtml.substring(i, i + 6) === '&#39;' || hlHtml.substring(i, i + 6) === '&quot;') {
+          const semi = hlHtml.indexOf(';', i);
+          if (semi !== -1) i = semi + 1;
+          else i++;
+        } else {
+          i++;
+        }
+        pos++;
+      }
+    }
+    const rangeStart = i;
+
+    // Find end
+    while (i < len && pos < end) {
+      if (hlHtml[i] === '<') {
+        while (i < len && hlHtml[i] !== '>') i++;
+        i++;
+      } else {
+        if (hlHtml.substring(i, i + 5) === '&amp;' || hlHtml.substring(i, i + 4) === '&lt;' || hlHtml.substring(i, i + 4) === '&gt;' || hlHtml.substring(i, i + 6) === '&#39;' || hlHtml.substring(i, i + 6) === '&quot;') {
+          const semi = hlHtml.indexOf(';', i);
+          if (semi !== -1) i = semi + 1;
+          else i++;
+        } else {
+          i++;
+        }
+        pos++;
+      }
+    }
+    const rangeEnd = i;
+
+    // Now we need to include any open tags from rangeStart through rangeEnd
+    // Find the tag context at rangeStart
+    let tagContext = '';
+    let j = 0;
+    while (j < rangeStart) {
+      if (hlHtml[j] === '<' && (j + 1 >= hlHtml.length || hlHtml[j + 1] !== '/')) {
+        // Opening tag - extract it
+        let endTag = hlHtml.indexOf('>', j);
+        if (endTag !== -1 && endTag < rangeStart) {
+          tagContext = hlHtml.substring(j, endTag + 1);
+          j = endTag + 1;
+        } else break;
+      } else {
+        j++;
+      }
+    }
+
+    // Collect all closing tags we need between rangeEnd and end of their tags
+    let closingTags = '';
+    let k = rangeEnd;
+    // Find any open tags that started before rangeEnd but haven't closed
+    const openStack = [];
+    j = 0;
+    while (j < rangeEnd) {
+      if (hlHtml[j] === '<') {
+        if (hlHtml[j + 1] === '/') {
+          // Closing tag - pop
+          openStack.pop();
+          let endTag = hlHtml.indexOf('>', j);
+          j = endTag + 1;
+        } else {
+          // Opening tag
+          let endTag = hlHtml.indexOf('>', j);
+          if (endTag !== -1) {
+            const tag = hlHtml.substring(j, endTag + 1);
+            if (endTag < rangeStart) {
+              // This tag started before our range, we need to reopen it
+              openStack.push(tag);
+            }
+            j = endTag + 1;
+          } else break;
+        }
+      } else {
+        j++;
+      }
+    }
+
+    // Build result: reopen tags + content + close tags
+    let result = '';
+    for (const tag of openStack) {
+      result += tag;
+    }
+    result += hlHtml.substring(rangeStart, rangeEnd);
+    for (let c = openStack.length - 1; c >= 0; c--) {
+      const tagName = openStack[c].match(/<(\w+)/);
+      if (tagName) result += '</' + tagName[1] + '>';
+    }
+    return result;
+  }
+
+  /**
+   * Render a line with syntax highlighting and optional inline diff.
+   * For context lines: just highlight.
+   * For changed lines: highlight + wrap changed portion.
+   */
+  function renderHighlightedLine(rawLine, changedStart, changedEnd, className) {
+    const hl = highlight(rawLine);
+    if (changedStart === undefined || changedEnd === undefined || changedStart >= changedEnd) {
+      return hl;
+    }
+    const before = extractHighlightedRange(hl, 0, changedStart);
+    const changed = extractHighlightedRange(hl, changedStart, changedEnd);
+    const after = extractHighlightedRange(hl, changedEnd, rawLine.length);
+    return before + '<span class="' + className + '">' + changed + '</span>' + after;
+  }
+
+  /**
+   * Render the old line with syntax highlighting and deletions marked.
+   */
+  function renderOldLine(oldLine, newLine) {
+    if (oldLine === undefined) return '';
+    if (newLine === undefined) {
+      // Pure deletion, highlight whole line
+      return highlight(oldLine);
+    }
+    if (oldLine === newLine) return highlight(oldLine);
+
+    // Find common prefix length in raw text
     let prefixLen = 0;
     const minLen = Math.min(oldLine.length, newLine.length);
     while (prefixLen < minLen && oldLine[prefixLen] === newLine[prefixLen]) {
       prefixLen++;
     }
 
-    // Find common suffix (don't overlap with prefix)
+    // Find common suffix length
     let suffixLen = 0;
     while (
       suffixLen < minLen - prefixLen &&
@@ -162,34 +294,35 @@
       suffixLen++;
     }
 
-    return {
-      prefix: escapeHTML(oldLine.slice(0, prefixLen)),
-      oldMiddle: escapeHTML(oldLine.slice(prefixLen, oldLine.length - (suffixLen || 0))),
-      newMiddle: escapeHTML(newLine.slice(prefixLen, newLine.length - (suffixLen || 0))),
-      suffix: escapeHTML(oldLine.slice(oldLine.length - (suffixLen || 0))),
-    };
+    return renderHighlightedLine(oldLine, prefixLen, oldLine.length - (suffixLen || 0), 'diff-del-inline');
   }
 
   /**
-   * Render the old line with deletions highlighted.
-   */
-  function renderOldLine(oldLine, newLine) {
-    const p = computeInlineParts(oldLine, newLine);
-    if (p.oldMiddle) {
-      return `${p.prefix}<del class="diff-del">${p.oldMiddle}</del>${p.suffix}`;
-    }
-    return p.prefix + p.suffix;
-  }
-
-  /**
-   * Render the new line with insertions highlighted.
+   * Render the new line with syntax highlighting and insertions marked.
    */
   function renderNewLine(oldLine, newLine) {
-    const p = computeInlineParts(oldLine, newLine);
-    if (p.newMiddle) {
-      return `${p.prefix}<ins class="diff-ins">${p.newMiddle}</ins>${p.suffix}`;
+    if (newLine === undefined) return '';
+    if (oldLine === undefined) {
+      // Pure addition, highlight whole line
+      return highlight(newLine);
     }
-    return p.prefix + p.suffix;
+    if (oldLine === newLine) return highlight(oldLine);
+
+    let prefixLen = 0;
+    const minLen = Math.min(oldLine.length, newLine.length);
+    while (prefixLen < minLen && oldLine[prefixLen] === newLine[prefixLen]) {
+      prefixLen++;
+    }
+
+    let suffixLen = 0;
+    while (
+      suffixLen < minLen - prefixLen &&
+      oldLine[oldLine.length - 1 - suffixLen] === newLine[newLine.length - 1 - suffixLen]
+    ) {
+      suffixLen++;
+    }
+
+    return renderHighlightedLine(newLine, prefixLen, newLine.length - (suffixLen || 0), 'diff-ins-inline');
   }
 </script>
 
@@ -207,14 +340,14 @@
     <span>📝</span>
     <span class="font-semibold" style="color:#a6e3a1">edit</span>
     <span class="text-ctp-overlay0 text-[10px] ml-auto truncate max-w-[300px]" title={filePath}>
-      {filePath.split('/').slice(-2).join('/')}
+      {(filePath ?? '').split('/').slice(-2).join('/')}
     </span>
   </button>
 
   <!-- Diff content -->
   <div class="border-t border-ctp-surface0" class:hidden={collapsed}>
     <div class="text-[11px] font-mono" style="background:color-mix(in srgb, #1e1e2e 50%, #11111b);">
-      {#each edits as edit, ei}
+      {#each (edits ?? []) as edit, ei}
         {#if ei > 0}
           <div class="border-t border-ctp-surface0/50"></div>
         {/if}
@@ -227,8 +360,8 @@
             {:else if segment.type === 'changed'}
               {#each segment.pairs as pair}
                 {#if pair.oldText !== undefined && pair.newText !== undefined}
-                  <div class="diff-line diff-line-removed flex">
-                    <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0 select-none"
+                  <div class="diff-line diff-line-removed flex leading-normal">
+                    <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
                       style="background:color-mix(in srgb, #f38ba8 12%, #11111b)">
                       {pair.oldLine}
                     </span>
@@ -239,8 +372,8 @@
                       {@html renderOldLine(pair.oldText, pair.newText)}
                     </span>
                   </div>
-                  <div class="diff-line diff-line-added flex">
-                    <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0 select-none"
+                  <div class="diff-line diff-line-added flex leading-normal">
+                    <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
                       style="background:color-mix(in srgb, #a6e3a1 12%, #11111b)">
                       {pair.newLine}
                     </span>
@@ -252,8 +385,8 @@
                     </span>
                   </div>
                 {:else if pair.oldText !== undefined}
-                  <div class="diff-line diff-line-removed flex">
-                    <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0 select-none"
+                  <div class="diff-line diff-line-removed flex leading-normal">
+                    <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
                       style="background:color-mix(in srgb, #f38ba8 12%, #11111b)">
                       {pair.oldLine}
                     </span>
@@ -261,12 +394,12 @@
                       style="background:color-mix(in srgb, #f38ba8 12%, #11111b); color:#f38ba8">-</span>
                     <span class="flex-1 pr-3 whitespace-pre overflow-x-auto"
                       style="background:color-mix(in srgb, #f38ba8 12%, #11111b)">
-                      {escapeHTML(pair.oldText)}
+                      {@html highlight(pair.oldText)}
                     </span>
                   </div>
                 {:else}
-                  <div class="diff-line diff-line-added flex">
-                    <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0 select-none"
+                  <div class="diff-line diff-line-added flex leading-normal">
+                    <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
                       style="background:color-mix(in srgb, #a6e3a1 12%, #11111b)">
                       {pair.newLine}
                     </span>
@@ -274,13 +407,13 @@
                       style="background:color-mix(in srgb, #a6e3a1 12%, #11111b); color:#a6e3a1">+</span>
                     <span class="flex-1 pr-3 whitespace-pre overflow-x-auto"
                       style="background:color-mix(in srgb, #a6e3a1 12%, #11111b)">
-                      {escapeHTML(pair.newText)}
+                      {@html highlight(pair.newText)}
                     </span>
                   </div>
                 {/if}
               {/each}
             {:else if segment.type === 'context'}
-              <div class="diff-line diff-line-context flex">
+              <div class="diff-line diff-line-context flex leading-normal">
                 <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
                   style="background:color-mix(in srgb, #1e1e2e 50%, #11111b)">
                   {segment.oldLine}
@@ -289,7 +422,7 @@
                   style="background:color-mix(in srgb, #1e1e2e 50%, #11111b); color:#585b70"> </span>
                 <span class="flex-1 pr-3 whitespace-pre overflow-x-auto"
                   style="background:color-mix(in srgb, #1e1e2e 50%, #11111b)">
-                  {escapeHTML(segment.text)}
+                  {@html highlight(segment.text)}
                 </span>
               </div>
             {/if}
@@ -301,18 +434,13 @@
 </div>
 
 <style>
-  .diff-del {
+  .diff-del,
+  .diff-del-inline {
     background: color-mix(in srgb, #f38ba8 35%, transparent);
     text-decoration: none;
   }
-  .diff-ins {
+  .diff-ins,
+  .diff-ins-inline {
     background: color-mix(in srgb, #a6e3a1 35%, transparent);
-  }
-  .diff-line {
-    line-height: 1.5;
-  }
-  .diff-line-num {
-    user-select: none;
-    opacity: 0.6;
   }
 </style>

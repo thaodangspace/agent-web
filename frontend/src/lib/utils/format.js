@@ -13,3 +13,10 @@ export function formatRelativeTime(t) {
 
   return t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
+export function formatTokens(n) {
+  if (!n) return '0';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return String(n);
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 )
 
@@ -108,6 +109,15 @@ func (d *ClaudeDecoder) processLine(raw string) (*Event, error) {
 
 // Close releases the file handle.
 func (d *ClaudeDecoder) Close() error { return d.file.Close() }
+
+// stripTaskNotificationUsage removes the <usage>...</usage> block from
+// task-notification result text. Claude Code's task notifications embed
+// usage stats as XML siblings of <result>, which leak into displayed output.
+var usageBlockRe = regexp.MustCompile(`<usage>[\s\S]*?</usage>\s*`)
+
+func stripTaskNotificationUsage(content string) string {
+	return usageBlockRe.ReplaceAllString(content, "")
+}
 
 // normalizeClaudeLine converts a Claude Code JSONL line to pi-agent format.
 // Returns (normalizedJSON, drop) where drop=true means the line should be ignored.
@@ -262,10 +272,12 @@ func (d *ClaudeDecoder) normalizeUser(raw string) (string, bool) {
 	// Content is an array of blocks — check for tool_result
 	for _, block := range evt.Message.Content.AsBlocks {
 		if block.Type == "tool_result" {
+			// Strip <usage>...</usage> block from task-notification results
+			content := stripTaskNotificationUsage(block.Content)
 			msg := map[string]interface{}{
 				"role":       "toolResult",
 				"toolCallId": block.ToolUseID,
-				"content":    block.Content,
+				"content":    content,
 				"isError":    false,
 			}
 			if d.toolNames != nil {

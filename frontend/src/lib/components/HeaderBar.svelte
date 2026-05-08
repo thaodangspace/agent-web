@@ -6,6 +6,7 @@
   import { quitSession } from '$lib/actions/session.js';
   import { createSession, fetchSessions } from '$lib/api/sessions.js';
   import { selectSession } from '$lib/actions/session.js';
+  import { formatTokens } from '$lib/utils/format.js';
 
   let sessionInfo = $state(null);
   let creating = $state(false);
@@ -58,6 +59,20 @@
     style="background: {$wsConnected ? '#a6e3a1' : '#f38ba8'}"
   ></div>
   <span class="text-sm text-ctp-overlay0 shrink-0">{$wsConnected ? 'Connected' : 'Disconnected'}</span>
+
+  {#if sessionInfo?.total_tokens}
+    <span class="text-[11px] text-ctp-overlay0 shrink-0 flex items-center gap-1.5">
+      <span>{formatTokens(sessionInfo.total_tokens)} tokens</span>
+      <span class="text-ctp-surface1">·</span>
+      <span>{formatTokens(sessionInfo.input_tokens)} in</span>
+      <span class="text-ctp-surface1">·</span>
+      <span>{formatTokens(sessionInfo.output_tokens)} out</span>
+      {#if sessionInfo.context_window}
+        <span class="text-ctp-surface1">·</span>
+        <span>{formatTokens(sessionInfo.context_window)} context</span>
+      {/if}
+    </span>
+  {/if}
 
   <div class="flex-1 min-w-0 overflow-hidden flex items-center gap-2">
     {#if sessionInfo}
@@ -126,7 +141,7 @@
 
   <!-- Mobile hamburger -->
   <button
-    class="md:hidden absolute top-2.5 left-2.5 z-30 p-1.5 rounded-md bg-ctp-surface0 text-ctp-text hover:bg-ctp-surface1"
+    class="md:hidden absolute top-2.5 left-2.5 z-[60] p-1.5 rounded-md bg-ctp-surface0 text-ctp-text hover:bg-ctp-surface1"
     onclick={() => sidebarOpen.update(v => !v)}
   >
     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
