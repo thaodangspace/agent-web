@@ -1,3 +1,17 @@
+# OS
+.DS_Store
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
@@ -5,3 +19,13 @@ frontend/.svelte-kit/
 
 # Go
 bin/
+server
+*.exe
+
+# Build output
+internal/server/static/dist/assets/
+
+# Data files
+*.db
+*.sqlite
+*.sqlite3
