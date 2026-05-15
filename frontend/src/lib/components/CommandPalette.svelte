@@ -63,10 +63,10 @@
 
   function sourceColor(source) {
     switch (source) {
-      case 'extension': return { bg: 'color-mix(in srgb, #a6e3a1 15%, #1e1e2e)', color: '#a6e3a1' };
-      case 'prompt': return { bg: 'color-mix(in srgb, #f9e2af 15%, #1e1e2e)', color: '#f9e2af' };
-      case 'skill': return { bg: 'color-mix(in srgb, #89b4fa 15%, #1e1e2e)', color: '#89b4fa' };
-      default: return { bg: 'color-mix(in srgb, #6c7086 15%, #1e1e2e)', color: '#6c7086' };
+      case 'extension': return { bg: 'color-mix(in srgb, #65b73b 15%, #ffffff)', color: '#65b73b' };
+      case 'prompt': return { bg: 'color-mix(in srgb, #dbab09 15%, #ffffff)', color: '#dbab09' };
+      case 'skill': return { bg: 'color-mix(in srgb, #135ce0 15%, #ffffff)', color: '#135ce0' };
+      default: return { bg: 'color-mix(in srgb, #777777 15%, #ffffff)', color: '#777777' };
     }
   }
 

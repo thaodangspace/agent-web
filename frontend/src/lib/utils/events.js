@@ -187,7 +187,8 @@ function appendToCurrentAssistant(ev) {
 }
 
 function addToolResult(msg) {
-  // Look up language from stored toolCall info
+  // Attach the result to the matching toolCall on the most recent assistant message
+  // (search backwards to be resilient to timing / done events)
   const toolCallId = msg.toolCallId || '';
   const lang = toolCallLanguages.get(toolCallId);
   const toolName = msg.toolName || 'unknown';
@@ -199,20 +200,42 @@ function addToolResult(msg) {
   }
 
   content = unescapeJsonString(content);
-
   const filePath = extractFilePath(msg);
 
-  messages.update(msgs => [...msgs, {
-    id: generateId(),
-    role: 'toolResult',
-    toolName: toolName,
-    content: content || '(no output)',
-    isError: msg.isError || false,
-    toolCallId: toolCallId,
-    filePath: filePath,
-    language: (toolName === 'read' && lang) ? lang : null,
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  }]);
+  messages.update(msgs => {
+    // Search backwards for the assistant message that owns this tool call
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'assistant' && (m.toolCalls || []).some(tc => tc.id === toolCallId)) {
+        const updatedCalls = (m.toolCalls || []).map(tc =>
+          tc.id === toolCallId
+            ? {
+                ...tc,
+                result: content || '(no output)',
+                resultIsError: msg.isError || false,
+                resultFilePath: filePath,
+                resultLanguage: (toolName === 'read' && lang) ? lang : null,
+              }
+            : tc
+        );
+        const newMsgs = [...msgs];
+        newMsgs[i] = { ...m, toolCalls: updatedCalls };
+        return newMsgs;
+      }
+    }
+    // Fallback: no matching assistant message, create standalone
+    return [...msgs, {
+      id: generateId(),
+      role: 'toolResult',
+      toolName: toolName,
+      content: content || '(no output)',
+      isError: msg.isError || false,
+      toolCallId: toolCallId,
+      filePath: filePath,
+      language: (toolName === 'read' && lang) ? lang : null,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }];
+  });
 }
 
 function renderLegacyMessage(data) {
@@ -279,17 +302,35 @@ function renderLegacyMessage(data) {
     }
     content = unescapeJsonString(content);
 
-    messages.update(msgs => [...msgs, {
-      id: generateId(),
-      role: 'toolResult',
-      toolName: msg.toolName || 'unknown',
-      content: content || '(no output)',
-      isError: msg.isError || false,
-      toolCallId: msg.toolCallId || '',
-      filePath: extractFilePath(msg),
-      language: null,
-      timestamp: time,
-    }]);
+    const toolCallId = msg.toolCallId || '';
+    const filePath = extractFilePath(msg);
+
+    messages.update(msgs => {
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (m.role === 'assistant' && (m.toolCalls || []).some(tc => tc.id === toolCallId)) {
+          const updatedCalls = (m.toolCalls || []).map(tc =>
+            tc.id === toolCallId
+              ? { ...tc, result: content || '(no output)', resultIsError: msg.isError || false, resultFilePath: filePath }
+              : tc
+          );
+          const newMsgs = [...msgs];
+          newMsgs[i] = { ...m, toolCalls: updatedCalls };
+          return newMsgs;
+        }
+      }
+      return [...msgs, {
+        id: generateId(),
+        role: 'toolResult',
+        toolName: msg.toolName || 'unknown',
+        content: content || '(no output)',
+        isError: msg.isError || false,
+        toolCallId: toolCallId,
+        filePath: filePath,
+        language: null,
+        timestamp: time,
+      }];
+    });
   }
 }
 

@@ -1,29 +1,30 @@
 @import "tailwindcss";
 
 @theme {
-  --color-ctp-base: #1e1e2e;
-  --color-ctp-mantle: #181825;
-  --color-ctp-crust: #11111b;
-  --color-ctp-surface0: #313244;
-  --color-ctp-surface1: #45475a;
-  --color-ctp-surface2: #585b70;
-  --color-ctp-overlay0: #6c7086;
-  --color-ctp-overlay1: #7f849c;
-  --color-ctp-subtext0: #a6adc8;
-  --color-ctp-text: #cdd6f4;
-  --color-ctp-lavender: #b4befe;
-  --color-ctp-blue: #89b4fa;
-  --color-ctp-sky: #89dceb;
-  --color-ctp-teal: #94e2d5;
-  --color-ctp-green: #a6e3a1;
-  --color-ctp-yellow: #f9e2af;
-  --color-ctp-peach: #fab387;
-  --color-ctp-maroon: #eba0ac;
-  --color-ctp-red: #f38ba8;
-  --color-ctp-mauve: #cba6f7;
-  --color-ctp-pink: #f5c2e7;
-  --color-ctp-flamingo: #f2cdcd;
-  --color-ctp-rosewater: #f5e0dc;
+  /* Juejin / Drake-Juejin theme */
+  --color-ctp-base: #ffffff;
+  --color-ctp-mantle: #f6f6f6;
+  --color-ctp-crust: #e5e5e5;
+  --color-ctp-surface0: #d5d5d5;
+  --color-ctp-surface1: #bbbbbb;
+  --color-ctp-surface2: #888888;
+  --color-ctp-overlay0: #777777;
+  --color-ctp-overlay1: #595959;
+  --color-ctp-subtext0: #777777;
+  --color-ctp-text: #333333;
+  --color-ctp-lavender: #6f42c1;
+  --color-ctp-blue: #135ce0;
+  --color-ctp-sky: #036aca;
+  --color-ctp-teal: #1b7c83;
+  --color-ctp-green: #65b73b;
+  --color-ctp-yellow: #dbab09;
+  --color-ctp-peach: #f66a0a;
+  --color-ctp-maroon: #d63200;
+  --color-ctp-red: #e95f59;
+  --color-ctp-mauve: #6f42c1;
+  --color-ctp-pink: #ea4aaa;
+  --color-ctp-flamingo: #d1bcf9;
+  --color-ctp-rosewater: #fff9f9;
 
   --font-family-sans: "JetBrains Mono", monospace;
   --font-family-mono: "JetBrains Mono", monospace;
@@ -44,65 +45,72 @@
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #313244; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #45475a; }
+::-webkit-scrollbar-thumb { background: #d5d5d5; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #bbbbbb; }
 
 /* Thin horizontal scrollbar for split scroll */
 .scrollbar-thin::-webkit-scrollbar { height: 6px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-thin::-webkit-scrollbar-thumb { background: #313244; border-radius: 3px; }
-.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #45475a; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: #d5d5d5; border-radius: 3px; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #bbbbbb; }
 
-/* Markdown prose (same as current .prose-markdown) */
-.prose-markdown { font-size: 13px; line-height: 1.7; color: #cdd6f4; }
+/* Markdown prose — Juejin style */
+.prose-markdown { font-size: 13px; line-height: 1.7; color: var(--color-ctp-text); }
 .prose-markdown p { margin: 0 0 0.6em 0; }
 .prose-markdown p:last-child { margin-bottom: 0; }
-.prose-markdown strong { color: #f5e0dc; font-weight: 600; }
-.prose-markdown em { color: #f2cdcd; font-style: italic; }
-.prose-markdown a { color: #89b4fa; text-decoration: underline; text-underline-offset: 2px; }
+.prose-markdown strong { color: var(--color-ctp-blue); font-weight: bold; }
+.prose-markdown em { color: var(--color-ctp-overlay1); font-style: italic; }
+.prose-markdown a { color: var(--color-ctp-sky); text-decoration: none; }
+.prose-markdown a:hover { text-decoration: underline; }
 .prose-markdown h1, .prose-markdown h2, .prose-markdown h3, .prose-markdown h4 {
-  margin: 1em 0 0.4em; font-weight: 700; color: #cba6f7;
+  margin: 1em 0 0.4em; font-weight: bold; color: var(--color-ctp-blue);
 }
-.prose-markdown h1 { font-size: 1.4em; border-bottom: 1px solid #313244; padding-bottom: 0.3em; }
-.prose-markdown h2 { font-size: 1.2em; border-bottom: 1px solid #313244; padding-bottom: 0.25em; }
-.prose-markdown h3 { font-size: 1.05em; }
+.prose-markdown h1 { font-size: 1.5em; text-align: center; border-bottom: none; padding-bottom: 0; }
+.prose-markdown h2 { font-size: 1.3em; border-bottom: 2px solid var(--color-ctp-blue); padding-bottom: 0.3em; }
+.prose-markdown hr {
+  height: 2px; padding: 0; margin: 16px 0;
+  background-color: var(--color-ctp-blue); border: 0 none; overflow: hidden;
+}
+.prose-markdown h3 { font-size: 1.1em; }
+.prose-markdown h4 { font-size: 1em; }
 .prose-markdown code {
-  font-size: 0.88em; padding: 0.15em 0.4em; border-radius: 4px;
-  background: #181825; color: #fab387;
+  font-size: 0.88em; padding: 0.065em 0.4em; border-radius: 2px;
+  background: #fff5f5; color: var(--color-ctp-maroon);
   font-family: "JetBrains Mono", monospace;
 }
 .prose-markdown pre {
-  margin: 0.6em 0; padding: 0.75em 1em; border-radius: 8px;
-  background: #11111b; border: 1px solid #313244; overflow-x: auto;
+  margin: 0.6em 0; padding: 0.5em 1em; border-radius: 2px;
+  background: #2b2b2b; border: none; overflow-x: auto;
 }
-.prose-markdown pre code { padding: 0; background: transparent; color: #cdd6f4; font-size: 0.85em; line-height: 1.6; }
+.prose-markdown pre code { padding: 0; background: transparent; color: #A9B7C6; font-size: 0.85em; line-height: 1.6; }
 .prose-markdown blockquote {
-  margin: 0.6em 0; padding: 0.4em 1em; border-left: 3px solid #cba6f7;
-  background: color-mix(in srgb, #cba6f7 8%, #1e1e2e);
-  border-radius: 0 6px 6px 0; color: #a6adc8;
+  margin: 0.6em 0; padding: 10px 16px; border-left: 4px solid #b2aec5;
+  background: var(--color-ctp-rosewater);
+  border-radius: 2px; color: var(--color-ctp-overlay1);
+  position: relative;
 }
 .prose-markdown ul { margin: 0.4em 0; padding-left: 1.4em; list-style: disc; }
 .prose-markdown ol { margin: 0.4em 0; padding-left: 1.4em; list-style: decimal; }
 .prose-markdown li { margin: 0.15em 0; padding-left: 0.2em; }
-.prose-markdown li::marker { color: #7f849c; }
+.prose-markdown li::marker { color: var(--color-ctp-overlay0); }
 .prose-markdown table { margin: 0.6em 0; width: 100%; border-collapse: collapse; font-size: 0.92em; }
 .prose-markdown th {
-  text-align: left; padding: 0.4em 0.7em; background: #181825;
-  color: #cba6f7; font-weight: 600; border: 1px solid #313244;
+  text-align: left; padding: 6px 13px; background: #f6f6f6;
+  color: var(--color-ctp-text); font-weight: bold; border: 0.1em solid var(--color-ctp-crust);
 }
-.prose-markdown td { padding: 0.4em 0.7em; border: 1px solid #313244; }
+.prose-markdown td { padding: 6px 13px; border: 0.1em solid var(--color-ctp-crust); }
 .prose-markdown tr:nth-child(even) td {
-  background: color-mix(in srgb, #313244 30%, #1e1e2e);
+  background: #f6f6f6;
 }
 
 /* Code blocks */
 .prose-markdown pre code {
   display: block;
-  background: #11111b;
-  padding: 0.75em 1em;
-  border-radius: 6px;
-  border: 1px solid #313244;
-  color: #cdd6f4;
+  background: #2b2b2b;
+  padding: 0.5em 1em;
+  border-radius: 2px;
+  border: none;
+  color: #A9B7C6;
   overflow-x: auto;
 }
 

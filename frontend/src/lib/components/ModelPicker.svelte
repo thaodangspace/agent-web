@@ -169,7 +169,7 @@
 <button
   bind:this={btnRef}
   class="text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap cursor-pointer transition-colors flex items-center gap-1 {rpcActive ? 'hover:bg-ctp-blue/30' : 'hover:bg-ctp-surface0/30'}"
-  style="background:color-mix(in srgb, #89b4fa 20%, transparent); color:#89b4fa"
+  style="background:color-mix(in srgb, #135ce0 20%, transparent); color:#135ce0"
   title={rpcActive ? 'Click to change model' : 'Send a message first to start RPC, then click to change model'}
   onclick={toggleDropdown}
 >
@@ -255,7 +255,7 @@
 
             {#if m.contextWindow}
               <span class="text-[9px] px-1.5 py-0.5 rounded shrink-0"
-                    style="background:color-mix(in srgb, #94e2d5 15%, transparent); color:#94e2d5">
+                    style="background:color-mix(in srgb, #1b7c83 15%, transparent); color:#1b7c83">
                 {Math.round(m.contextWindow / 1000)}k
               </span>
             {/if}

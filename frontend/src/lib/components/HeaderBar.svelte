@@ -56,7 +56,7 @@
 <div class="px-5 py-2.5 border-b border-ctp-crust flex items-center gap-3 bg-ctp-mantle flex-wrap">
   <div
     class="w-2 h-2 rounded-full transition-colors duration-300"
-    style="background: {$wsConnected ? '#28a745' : '#d73a49'}"
+    style="background: {$wsConnected ? '#65b73b' : '#e95f59'}"
   ></div>
   <span class="text-sm text-ctp-overlay0 shrink-0">{$wsConnected ? 'Connected' : 'Disconnected'}</span>
 
@@ -79,7 +79,7 @@
       {#if sessionInfo.project}
         <span
           class="text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap"
-          style="background:color-mix(in srgb, #6f42c1 12%, transparent); color:#6f42c1"
+          style="background:color-mix(in srgb, #135ce0 12%, transparent); color:#135ce0"
         >
           {escapeHTML(sessionInfo.project)}
         </span>
@@ -87,7 +87,7 @@
       {#if sessionInfo.cwd}
         <span
           class="text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap text-ctp-overlay0"
-          style="background:color-mix(in srgb, #e1e4e8 60%, transparent)"
+          style="background:color-mix(in srgb, #d5d5d5 60%, transparent)"
         >
           {sessionInfo.cwd.length > 50 ? '...' + sessionInfo.cwd.slice(-47) : sessionInfo.cwd}
         </span>
@@ -96,7 +96,7 @@
     {:else if $activeSession}
       <span
         class="text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap"
-        style="background:color-mix(in srgb, #6f42c1 12%, transparent); color:#6f42c1"
+        style="background:color-mix(in srgb, #135ce0 12%, transparent); color:#135ce0"
       >
         {$activeSession.substring(0, 12)}...
       </span>
@@ -105,7 +105,7 @@
 
   {#if sessionInfo?.cwd}
     <button
-      class="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-ctp-green/15 text-ctp-green hover:bg-ctp-green/25 transition-colors"
+      class="px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-ctp-green/12 text-ctp-green hover:bg-ctp-green/20 transition-colors"
       disabled={creating}
       onclick={handleNewSession}
       title="New session in {sessionInfo.cwd}"

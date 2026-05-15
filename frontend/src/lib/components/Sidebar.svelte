@@ -47,7 +47,7 @@
 
 {#snippet sessionItem(session)}
   <div
-    class="session-item px-4 py-2.5 border-b border-ctp-surface0 cursor-pointer transition-colors duration-150 hover:bg-ctp-surface1 {$activeSession === session.id ? 'bg-ctp-surface0 border-l-[3px] border-ctp-blue' : ''}"
+    class="session-item px-4 py-2.5 border-b border-ctp-surface0 cursor-pointer transition-colors duration-150 hover:bg-ctp-surface1 {$activeSession === session.id ? 'bg-ctp-rosewater border-l-[3px] border-ctp-blue' : ''}"
     onclick={() => selectSession(session.id)}
   >
     <div class="flex items-center justify-between">
@@ -72,7 +72,7 @@
 {/snippet}
 
 <div class="w-[280px] h-full bg-ctp-mantle border-r border-ctp-surface0 flex flex-col">
-  <div class="p-4 border-b border-ctp-surface0 text-sm font-semibold text-ctp-blue flex items-center justify-between">
+  <div class="p-4 border-b border-ctp-surface0 text-sm font-semibold text-ctp-blue flex items-center justify-between" style="background:color-mix(in srgb, #135ce0 4%, #ffffff)">
     <span>⚡ Sessions</span>
     <div class="flex items-center gap-2">
       <button

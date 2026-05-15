@@ -6,7 +6,7 @@
 
 <button
   class="fixed bottom-24 right-6 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold shadow-lg transition-all animate-fadeIn"
-  style="background:color-mix(in srgb, #89b4fa 25%, #313244); color:#cdd6f4; border:1px solid #89b4fa;"
+  style="background:color-mix(in srgb, #135ce0 10%, #ffffff); color:#333333; border:1px solid #135ce0;"
   onclick={onScrollToBottom}
 >
   <span>↓</span>

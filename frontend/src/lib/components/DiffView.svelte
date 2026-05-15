@@ -327,7 +327,7 @@
 </script>
 
 <div class="rounded-lg overflow-hidden border border-ctp-surface0 mb-2"
-  style="background:color-mix(in srgb, #a6e3a1 8%, #1e1e2e)">
+  style="background:color-mix(in srgb, #65b73b 8%, #ffffff)">
   <!-- Header -->
   <button
     class="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer"
@@ -338,7 +338,7 @@
       style="transform: {collapsed ? '' : 'rotate(90deg)'}"
     >▶</span>
     <span>📝</span>
-    <span class="font-semibold" style="color:#a6e3a1">edit</span>
+    <span class="font-semibold" style="color:#65b73b">edit</span>
     <span class="text-ctp-overlay0 text-[10px] ml-auto truncate max-w-[300px]" title={filePath}>
       {(filePath ?? '').split('/').slice(-2).join('/')}
     </span>
@@ -346,7 +346,7 @@
 
   <!-- Diff content -->
   <div class="border-t border-ctp-surface0" class:hidden={collapsed}>
-    <div class="text-[11px] font-mono" style="background:color-mix(in srgb, #1e1e2e 50%, #11111b);">
+    <div class="text-[11px] font-mono" style="background:color-mix(in srgb, #ffffff 50%, #ffffff);">
       {#each (edits ?? []) as edit, ei}
         {#if ei > 0}
           <div class="border-t border-ctp-surface0/50"></div>
@@ -362,51 +362,51 @@
                 {#if pair.oldText !== undefined && pair.newText !== undefined}
                   <div class="diff-line diff-line-removed flex leading-normal">
                     <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
-                      style="background:color-mix(in srgb, #f38ba8 12%, #11111b)">
+                      style="background:color-mix(in srgb, #e95f59 12%, #ffffff)">
                       {pair.oldLine}
                     </span>
                     <span class="w-5 shrink-0 select-none"
-                      style="background:color-mix(in srgb, #f38ba8 12%, #11111b); color:#f38ba8">-</span>
+                      style="background:color-mix(in srgb, #e95f59 12%, #ffffff); color:#e95f59">-</span>
                     <span class="flex-1 pr-3 whitespace-pre overflow-x-auto"
-                      style="background:color-mix(in srgb, #f38ba8 12%, #11111b)">
+                      style="background:color-mix(in srgb, #e95f59 12%, #ffffff)">
                       {@html renderOldLine(pair.oldText, pair.newText)}
                     </span>
                   </div>
                   <div class="diff-line diff-line-added flex leading-normal">
                     <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
-                      style="background:color-mix(in srgb, #a6e3a1 12%, #11111b)">
+                      style="background:color-mix(in srgb, #65b73b 12%, #ffffff)">
                       {pair.newLine}
                     </span>
                     <span class="w-5 shrink-0 select-none"
-                      style="background:color-mix(in srgb, #a6e3a1 12%, #11111b); color:#a6e3a1">+</span>
+                      style="background:color-mix(in srgb, #65b73b 12%, #ffffff); color:#65b73b">+</span>
                     <span class="flex-1 pr-3 whitespace-pre overflow-x-auto"
-                      style="background:color-mix(in srgb, #a6e3a1 12%, #11111b)">
+                      style="background:color-mix(in srgb, #65b73b 12%, #ffffff)">
                       {@html renderNewLine(pair.oldText, pair.newText)}
                     </span>
                   </div>
                 {:else if pair.oldText !== undefined}
                   <div class="diff-line diff-line-removed flex leading-normal">
                     <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
-                      style="background:color-mix(in srgb, #f38ba8 12%, #11111b)">
+                      style="background:color-mix(in srgb, #e95f59 12%, #ffffff)">
                       {pair.oldLine}
                     </span>
                     <span class="w-5 shrink-0 select-none"
-                      style="background:color-mix(in srgb, #f38ba8 12%, #11111b); color:#f38ba8">-</span>
+                      style="background:color-mix(in srgb, #e95f59 12%, #ffffff); color:#e95f59">-</span>
                     <span class="flex-1 pr-3 whitespace-pre overflow-x-auto"
-                      style="background:color-mix(in srgb, #f38ba8 12%, #11111b)">
+                      style="background:color-mix(in srgb, #e95f59 12%, #ffffff)">
                       {@html highlight(pair.oldText)}
                     </span>
                   </div>
                 {:else}
                   <div class="diff-line diff-line-added flex leading-normal">
                     <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
-                      style="background:color-mix(in srgb, #a6e3a1 12%, #11111b)">
+                      style="background:color-mix(in srgb, #65b73b 12%, #ffffff)">
                       {pair.newLine}
                     </span>
                     <span class="w-5 shrink-0 select-none"
-                      style="background:color-mix(in srgb, #a6e3a1 12%, #11111b); color:#a6e3a1">+</span>
+                      style="background:color-mix(in srgb, #65b73b 12%, #ffffff); color:#65b73b">+</span>
                     <span class="flex-1 pr-3 whitespace-pre overflow-x-auto"
-                      style="background:color-mix(in srgb, #a6e3a1 12%, #11111b)">
+                      style="background:color-mix(in srgb, #65b73b 12%, #ffffff)">
                       {@html highlight(pair.newText)}
                     </span>
                   </div>
@@ -415,13 +415,13 @@
             {:else if segment.type === 'context'}
               <div class="diff-line diff-line-context flex leading-normal">
                 <span class="diff-line-num w-10 text-right pr-2 shrink-0 text-ctp-overlay0/60 select-none"
-                  style="background:color-mix(in srgb, #1e1e2e 50%, #11111b)">
+                  style="background:color-mix(in srgb, #ffffff 50%, #ffffff)">
                   {segment.oldLine}
                 </span>
                 <span class="w-5 shrink-0 select-none"
-                  style="background:color-mix(in srgb, #1e1e2e 50%, #11111b); color:#585b70"> </span>
+                  style="background:color-mix(in srgb, #ffffff 50%, #ffffff); color:#777777"> </span>
                 <span class="flex-1 pr-3 whitespace-pre overflow-x-auto"
-                  style="background:color-mix(in srgb, #1e1e2e 50%, #11111b)">
+                  style="background:color-mix(in srgb, #ffffff 50%, #ffffff)">
                   {@html highlight(segment.text)}
                 </span>
               </div>
@@ -436,11 +436,11 @@
 <style>
   .diff-del,
   .diff-del-inline {
-    background: color-mix(in srgb, #f38ba8 35%, transparent);
+    background: color-mix(in srgb, #e95f59 25%, transparent);
     text-decoration: none;
   }
   .diff-ins,
   .diff-ins-inline {
-    background: color-mix(in srgb, #a6e3a1 35%, transparent);
+    background: color-mix(in srgb, #65b73b 25%, transparent);
   }
 </style>

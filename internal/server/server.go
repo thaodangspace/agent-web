@@ -20,8 +20,10 @@ import (
 	"sync"
 	"time"
 
+	"agent-web/internal/fsbrowse"
 	"agent-web/internal/hub"
 	"agent-web/internal/jsonl"
+	"agent-web/internal/llm"
 	"agent-web/internal/rpc"
 	"agent-web/internal/watcher"
 
@@ -77,10 +79,12 @@ type Server struct {
 	rpcMgr            *rpcManager
 	sessionsDir       string
 	claudeProjectsDir string
+	fsbrowse          *fsbrowse.Service          // filesystem browsing service (may be nil)
+	llmClient         *llm.LMStudioClient        // local LLM client for translation
 }
 
 // New creates a new Server.
-func New(sessionsDir, claudeProjectsDir string) (*Server, error) {
+func New(sessionsDir, claudeProjectsDir, allowedRootsCSV string) (*Server, error) {
 	w, err := watcher.New(sessionsDir)
 	if err != nil {
 		return nil, fmt.Errorf("create watcher: %w", err)
@@ -94,6 +98,13 @@ func New(sessionsDir, claudeProjectsDir string) (*Server, error) {
 		rpcMgr:            newRPCManager(),
 		sessionsDir:       sessionsDir,
 		claudeProjectsDir: claudeProjectsDir,
+		llmClient:         llm.NewLMStudioClient(),
+	}
+
+	// Initialize filesystem browsing service if roots are configured
+	if allowedRootsCSV != "" {
+		s.fsbrowse = fsbrowse.New(allowedRootsCSV)
+		log.Printf("[server] filesystem browsing enabled with roots: %s", allowedRootsCSV)
 	}
 
 	// Try to create Claude watcher (optional — skip if dir doesn't exist)
@@ -140,6 +151,16 @@ func (s *Server) Start(addr string) error {
 	// Image upload
 	mux.HandleFunc("/api/images/upload", s.handleImageUpload)
 	mux.HandleFunc("/api/images/view", s.handleImageView)
+
+	// Filesystem browsing (requires allowed roots)
+	if s.fsbrowse != nil {
+		mux.HandleFunc("/api/fs/browse", s.handleFSBrowse)
+		mux.HandleFunc("/api/fs/search", s.handleFSSearch)
+		mux.HandleFunc("/api/fs/read", s.handleFSRead)
+	}
+
+	// Translation
+	mux.HandleFunc("/api/translate", s.handleTranslate)
 
 	// Static files (Svelte SPA with fallback)
 	staticSub, err := fs.Sub(staticFS, "static/dist")
@@ -347,6 +368,145 @@ func generateSessionID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return fmt.Sprintf("%08x", b)
+}
+
+// ===== Filesystem API =====
+
+// handleFSBrowse lists the contents of a directory.
+// GET /api/fs/browse?path=/Users/dt/code/project
+func (s *Server) handleFSBrowse(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	dirPath := r.URL.Query().Get("path")
+	if dirPath == "" {
+		http.Error(w, "missing path parameter", http.StatusBadRequest)
+		return
+	}
+
+	// If path is empty or ".", return allowed roots as suggestions
+	if dirPath == "." || dirPath == "" {
+		var roots []fsbrowse.Entry
+		for _, root := range s.fsbrowse.AllowedRoots() {
+			roots = append(roots, fsbrowse.Entry{
+				Name:  filepath.Base(root),
+				Path:  root,
+				IsDir: true,
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"entries": roots,
+		})
+		return
+	}
+
+	entries, err := s.fsbrowse.Browse(dirPath, 200)
+	if err != nil {
+		log.Printf("[server] fs browse error: %v", err)
+		if _, ok := err.(*fsbrowse.NotAllowedError); ok {
+			http.Error(w, "access denied: path outside allowed roots", http.StatusForbidden)
+			return
+		}
+		http.Error(w, fmt.Sprintf("browse error: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"entries": entries,
+	})
+}
+
+// handleFSSearch searches for files/dirs under a root matching a query.
+// GET /api/fs/search?root=/Users/dt/code&query=server
+func (s *Server) handleFSSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	root := r.URL.Query().Get("root")
+	query := r.URL.Query().Get("query")
+	if root == "" {
+		// If no root specified, search across all allowed roots
+		var allResults []fsbrowse.Entry
+		seen := make(map[string]bool)
+		for _, allowedRoot := range s.fsbrowse.AllowedRoots() {
+			results, err := s.fsbrowse.Search(allowedRoot, query, 30)
+			if err != nil {
+				continue
+			}
+			for _, e := range results {
+				if !seen[e.Path] {
+					seen[e.Path] = true
+					allResults = append(allResults, e)
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"entries": allResults,
+		})
+		return
+	}
+
+	if query == "" {
+		http.Error(w, "missing query parameter", http.StatusBadRequest)
+		return
+	}
+
+	results, err := s.fsbrowse.Search(root, query, 50)
+	if err != nil {
+		log.Printf("[server] fs search error: %v", err)
+		if _, ok := err.(*fsbrowse.NotAllowedError); ok {
+			http.Error(w, "access denied: path outside allowed roots", http.StatusForbidden)
+			return
+		}
+		http.Error(w, fmt.Sprintf("search error: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"entries": results,
+	})
+}
+
+// handleFSRead reads a small file for @ mention preview.
+// GET /api/fs/read?path=/Users/dt/code/project/file.go
+func (s *Server) handleFSRead(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	filePath := r.URL.Query().Get("path")
+	if filePath == "" {
+		http.Error(w, "missing path parameter", http.StatusBadRequest)
+		return
+	}
+
+	content, err := s.fsbrowse.ReadFile(filePath, 32*1024)
+	if err != nil {
+		log.Printf("[server] fs read error: %v", err)
+		if _, ok := err.(*fsbrowse.NotAllowedError); ok {
+			http.Error(w, "access denied: path outside allowed roots", http.StatusForbidden)
+			return
+		}
+		http.Error(w, fmt.Sprintf("read error: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"content": content,
+		"truncated": len(content) >= 32*1024,
+	})
 }
 
 // ===== RPC API =====
@@ -923,6 +1083,57 @@ func imageMimeFromExt(ext string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+// ===== Translation =====
+
+// handleTranslate translates text to Vietnamese using local LLM (LM Studio).
+// POST /api/translate { "text": "...", "target_lang": "vi" }
+func (s *Server) handleTranslate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Text       string `json:"text"`
+		TargetLang string `json:"target_lang"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.Text == "" {
+		http.Error(w, "missing text", http.StatusBadRequest)
+		return
+	}
+
+	if req.TargetLang == "" {
+		req.TargetLang = "vi" // default to Vietnamese
+	}
+
+	log.Printf("[server] translate request: text_len=%d target=%s", len(req.Text), req.TargetLang)
+
+	translated, err := s.llmClient.Translate(req.Text, req.TargetLang)
+	if err != nil {
+		log.Printf("[server] translate error: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
+	}
+
+	log.Printf("[server] translate success: result_len=%d", len(translated))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":    true,
+		"translated": translated,
+	})
 }
 
 // ===== WebSocket =====

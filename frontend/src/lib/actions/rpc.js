@@ -44,6 +44,38 @@ export async function toggleRPC() {
   }
 }
 
+/**
+ * Ensure RPC is running for the given session. If not, auto-start it.
+ * Returns true if RPC is ready, false if startup failed.
+ */
+export async function ensureRpcRunning(sessionId) {
+  if (!sessionId) return false;
+
+  const currentRpc = isRpcRunning(sessionId);
+  if (currentRpc) return true;
+
+  let warnedSet = new Set();
+  warnedSessions.subscribe(v => { warnedSet = new Set(v); })();
+
+  if (!warnedSet.has(sessionId)) {
+    warnedSet.add(sessionId);
+    warnedSessions.set(warnedSet);
+    addSystemMessage('⚡ Auto-starting RPC for this session...');
+  }
+
+  rpcAutoStarting.set(true);
+  try {
+    await startRPC(sessionId);
+    setRpcRunning(sessionId, true);
+    rpcAutoStarting.set(false);
+    return true;
+  } catch (e) {
+    rpcAutoStarting.set(false);
+    addSystemMessage('Failed to start RPC: ' + e.message);
+    return false;
+  }
+}
+
 export async function abortRPC() {
   let currentActive = null;
   activeSession.subscribe(v => { currentActive = v; })();
@@ -65,30 +97,9 @@ export async function sendMessage(text, imagePaths = []) {
     return;
   }
 
-  const currentRpc = isRpcRunning(currentActive);
-
   // Auto-start RPC if not running
-  if (!currentRpc) {
-    let warnedSet = new Set();
-    warnedSessions.subscribe(v => { warnedSet = new Set(v); })();
-
-    if (!warnedSet.has(currentActive)) {
-      warnedSet.add(currentActive);
-      warnedSessions.set(warnedSet);
-      addSystemMessage('⚡ Auto-starting RPC for this session...');
-    }
-
-    rpcAutoStarting.set(true);
-    try {
-      await startRPC(currentActive);
-      setRpcRunning(currentActive, true);
-    } catch (e) {
-      rpcAutoStarting.set(false);
-      addSystemMessage('Failed to start RPC: ' + e.message);
-      return;
-    }
-    rpcAutoStarting.set(false);
-  }
+  const rpcReady = await ensureRpcRunning(currentActive);
+  if (!rpcReady) return;
 
   let currentStreaming = false;
   isStreaming.subscribe(v => { currentStreaming = v; })();

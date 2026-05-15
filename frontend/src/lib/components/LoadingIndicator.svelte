@@ -1,7 +1,7 @@
 <div class="flex flex-col items-start animate-fadeIn">
   <div
     class="px-4 py-2.5 rounded-2xl text-sm"
-    style="background:color-mix(in srgb, #a6e3a1 20%, #313244);"
+    style="background:color-mix(in srgb, #65b73b 12%, #ffffff);"
   >
     <div class="flex items-center gap-2">
       <div class="typing-dots flex gap-1">

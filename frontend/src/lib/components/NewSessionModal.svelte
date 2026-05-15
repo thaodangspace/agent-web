@@ -2,10 +2,12 @@
   import { newSessionModalOpen } from '$lib/stores/ui.svelte.js';
   import { createSession, fetchSessions } from '$lib/api/sessions.js';
   import { selectSession } from '$lib/actions/session.js';
+  import PathPicker from './PathPicker.svelte';
 
   let cwd = $state('');
   let error = $state('');
   let loading = $state(false);
+  let pickerRef = $state(null);
 
   async function handleCreate() {
     if (!cwd.trim()) {
@@ -40,6 +42,23 @@
     cwd = '';
     error = '';
   }
+
+  function handlePickerSelect(path) {
+    cwd = path;
+    // Focus back on the input
+    const input = document.querySelector('.path-picker-input');
+    if (input) input.focus();
+  }
+
+  function handleInputKeydown(e) {
+    if (pickerRef) {
+      const handled = pickerRef.handleKeydown(e);
+      if (handled) return;
+    }
+    if (e.key === 'Enter') {
+      handleCreate();
+    }
+  }
 </script>
 
 {#if $newSessionModalOpen}
@@ -72,12 +91,21 @@
       <!-- Body -->
       <div class="px-6 py-5">
         <label class="text-xs font-medium text-ctp-text block mb-2">Working Directory</label>
-        <input
-          type="text"
-          bind:value={cwd}
-          class="w-full px-3.5 py-2.5 bg-ctp-crust border border-ctp-surface0 rounded-lg text-ctp-text text-sm font-mono focus:outline-none focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20 placeholder:text-ctp-overlay0 transition-all"
-          onkeydown={e => e.key === 'Enter' && handleCreate()}
-        />
+        <div class="relative">
+          <input
+            type="text"
+            bind:value={cwd}
+            class="path-picker-input w-full px-3.5 py-2.5 bg-ctp-crust border border-ctp-surface0 rounded-lg text-ctp-text text-sm font-mono focus:outline-none focus:border-ctp-blue focus:ring-2 focus:ring-ctp-blue/20 placeholder:text-ctp-overlay0 transition-all"
+            onkeydown={handleInputKeydown}
+            placeholder="e.g. /Users/dt/code/my-project"
+          />
+          <PathPicker
+            bind:this={pickerRef}
+            value={cwd}
+            onSelect={handlePickerSelect}
+            onClose={() => {}}
+          />
+        </div>
         <p class="text-[11px] text-ctp-overlay0 mt-2">Enter the project directory path to start a new agent session.</p>
       </div>
 
@@ -103,7 +131,7 @@
         <div class="px-6 pb-4">
           <div
             class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-ctp-red"
-            style="background:color-mix(in srgb, #f38ba8 10%, #1e1e2e)"
+            style="background:color-mix(in srgb, #e95f59 10%, #ffffff)"
           >
             <span>⚠️</span>
             <span>{error}</span>

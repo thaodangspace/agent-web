@@ -1,10 +1,10 @@
 <script>
   import { onMount, tick } from 'svelte';
   import { messages } from '$lib/stores/messages.svelte.js';
-  import { rpcRunning, isStreaming, rpcAutoStarting, isRpcRunning } from '$lib/stores/rpc.svelte.js';
+  import { rpcRunning, isStreaming, rpcAutoStarting } from '$lib/stores/rpc.svelte.js';
   import { activeSession } from '$lib/stores/session.svelte.js';
   import { userScrolledUp, newMessageCount } from '$lib/stores/messages.svelte.js';
-  import { sendMessage, abortRPC } from '$lib/actions/rpc.js';
+  import { sendMessage, abortRPC, ensureRpcRunning } from '$lib/actions/rpc.js';
 
   import MessageBubble from './MessageBubble.svelte';
   import AssistantBubble from './AssistantBubble.svelte';
@@ -12,6 +12,7 @@
   import LoadingIndicator from './LoadingIndicator.svelte';
   import ScrollDownButton from './ScrollDownButton.svelte';
   import CommandPalette from './CommandPalette.svelte';
+  import FileMentionPalette from './FileMentionPalette.svelte';
   import { isAtBottom, autoResize, syncHorizontalScroll } from '$lib/utils/scroll.js';
   import { getRPCCOmmands, uploadImage, getAvailableModels, setModel, cycleModel } from '$lib/api/rpc.js';
   import { sessionCommands, commandsLoading } from '$lib/stores/commands.svelte.js';
@@ -32,6 +33,8 @@
   let paletteRef = $state(null);
   let showPalette = $state(false);
   let paletteFetched = $state(new Set());
+  let fileMentionRef = $state(null);
+  let showFileMention = $state(false);
 
   // Model picker state
   let showModelPicker = $state(false);
@@ -137,7 +140,6 @@
 
   // Fetch available models
   async function fetchModels() {
-    if (!activeRpcRunning()) return;
     let cached;
     availableModels.subscribe(v => { cached = v; })();
     const cachedModels = cached?.get($activeSession);
@@ -176,12 +178,13 @@
   });
 
   async function selectModel(m) {
-    if (!activeRpcRunning() || switchingModel) return;
+    if (switchingModel) return;
     switchingModel = true;
     modelsError = '';
     try {
       const resp = await setModel($activeSession, m.provider, m.id);
       if (resp.success) {
+        currentModel = m.name || m.id;
         closeModelPicker();
         clearModelsForSession($activeSession);
       } else {
@@ -195,12 +198,15 @@
   }
 
   async function handleCycleModel() {
-    if (!activeRpcRunning() || switchingModel) return;
+    if (switchingModel) return;
     switchingModel = true;
     modelsError = '';
     try {
       const resp = await cycleModel($activeSession);
       if (resp.success) {
+        if (resp.data?.model) {
+          currentModel = resp.data.model.name || resp.data.model.id;
+        }
         closeModelPicker();
         clearModelsForSession($activeSession);
       } else {
@@ -213,12 +219,14 @@
     }
   }
 
-  function toggleModelPicker(e) {
+  async function toggleModelPicker(e) {
     e.preventDefault();
     e.stopPropagation();
     if (showModelPicker) {
       closeModelPicker();
     } else {
+      const ok = await ensureRpcRunning($activeSession);
+      if (!ok) return;
       showModelPicker = true;
       if (models.length === 0) fetchModels();
     }
@@ -334,6 +342,11 @@
   }
 
   function handleKeydown(e) {
+    // Let FileMentionPalette handle navigation keys when visible
+    if (showFileMention && fileMentionRef) {
+      const handled = fileMentionRef.handleKeydown(e);
+      if (handled) return;
+    }
     // Let CommandPalette handle navigation keys when visible
     if (showPalette && paletteRef) {
       const handled = paletteRef.handleKeydown(e);
@@ -390,20 +403,72 @@
     if (!paletteFetched.has(activeId)) {
       paletteFetched.add(activeId);
       commandsLoading.set(true);
-      getRPCCOmmands(activeId)
-        .then(resp => {
-          if (resp.success && resp.data?.commands) {
-            sessionCommands.update(map => {
-              const next = new Map(map);
-              next.set(activeId, resp.data.commands);
-              return next;
-            });
-          }
-        })
-        .catch(e => console.error('Failed to fetch commands:', e))
-        .finally(() => commandsLoading.set(false));
+      ensureRpcRunning(activeId).then(ok => {
+        if (!ok) {
+          commandsLoading.set(false);
+          return;
+        }
+        getRPCCOmmands(activeId)
+          .then(resp => {
+            if (resp.success && resp.data?.commands) {
+              sessionCommands.update(map => {
+                const next = new Map(map);
+                next.set(activeId, resp.data.commands);
+                return next;
+              });
+            }
+          })
+          .catch(e => console.error('Failed to fetch commands:', e))
+          .finally(() => commandsLoading.set(false));
+      });
     }
   });
+
+  // Track input changes to show/hide @ file mention palette
+  $effect(() => {
+    const _ = input;
+    const activeId = $activeSession;
+    if (!activeId) {
+      showFileMention = false;
+      return;
+    }
+    const atIdx = input.lastIndexOf('@');
+    if (atIdx === -1) {
+      showFileMention = false;
+      return;
+    }
+    // Show palette if @ is present and not followed by whitespace
+    const afterAt = input.slice(atIdx + 1);
+    if (afterAt.includes(' ')) {
+      showFileMention = false;
+      return;
+    }
+    // Don't show if we're already showing command palette
+    if (showPalette) {
+      showFileMention = false;
+      return;
+    }
+    showFileMention = true;
+  });
+
+  function handleFileMentionSelect(entry) {
+    // Replace @query with the file path
+    const atIdx = input.lastIndexOf('@');
+    if (atIdx !== -1) {
+      const beforeAt = input.slice(0, atIdx);
+      input = beforeAt + entry.path + ' ';
+    }
+    showFileMention = false;
+    if (textareaEl) {
+      textareaEl.focus();
+      autoResize(textareaEl);
+    }
+  }
+
+  function handleFileMentionClose() {
+    showFileMention = false;
+    if (textareaEl) textareaEl.focus();
+  }
 
   function handleScroll() {
     if (!chatContainer) return;
@@ -451,13 +516,14 @@
     class="flex-1 overflow-y-auto overflow-x-auto p-4 flex flex-col gap-3"
     bind:this={chatContainer}
     onscroll={handleScroll}
+    style="background-image:linear-gradient(90deg,rgba(60,10,30,.04) 3%,transparent 0),linear-gradient(1turn,rgba(60,10,30,.04) 3%,transparent 0);background-size:20px 20px;background-position:50%;"
   >
     {#if $messages.length === 0}
       <div class="flex-1 flex items-center justify-center">
         <div class="text-center max-w-md px-4">
           <!-- Icon -->
           <div class="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-               style="background: linear-gradient(135deg, color-mix(in srgb, #89b4fa 20%, #1e1e2e), color-mix(in srgb, #cba6f7 20%, #1e1e2e))">
+               style="background: linear-gradient(135deg, color-mix(in srgb, #135ce0 12%, #ffffff), color-mix(in srgb, #036aca 12%, #ffffff))">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-ctp-blue" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
             </svg>
@@ -470,13 +536,13 @@
           </p>
           {#if $activeSession}
             <div class="flex flex-wrap gap-2 justify-center">
-              <span class="text-[10px] px-2.5 py-1 rounded-full" style="background:color-mix(in srgb, #89b4fa 12%, transparent); color:#89b4fa">
+              <span class="text-[10px] px-2.5 py-1 rounded-full" style="background:color-mix(in srgb, #135ce0 10%, transparent); color:#135ce0">
                 💡 Ask a question
               </span>
-              <span class="text-[10px] px-2.5 py-1 rounded-full" style="background:color-mix(in srgb, #a6e3a1 12%, transparent); color:#a6e3a1">
+              <span class="text-[10px] px-2.5 py-1 rounded-full" style="background:color-mix(in srgb, #65b73b 10%, transparent); color:#65b73b">
                 🛠 Run commands
               </span>
-              <span class="text-[10px] px-2.5 py-1 rounded-full" style="background:color-mix(in srgb, #f9e2af 12%, transparent); color:#f9e2af">
+              <span class="text-[10px] px-2.5 py-1 rounded-full" style="background:color-mix(in srgb, #dbab09 12%, transparent); color:#b08800">
                 📎 Attach images
               </span>
             </div>
@@ -490,12 +556,13 @@
         {:else if msg.role === 'assistant'}
           <AssistantBubble {msg} />
         {:else if msg.role === 'toolResult'}
+          <!-- Fallback: render standalone tool results only when not attached to an assistant message -->
           <ToolResultBlock {msg} />
         {:else if msg.role === 'system'}
           <div class="flex items-center justify-center animate-fadeIn">
             <div
               class="px-3 py-1.5 rounded-lg text-xs text-ctp-red"
-              style="background:color-mix(in srgb, #f38ba8 10%, #1e1e2e)"
+              style="background:color-mix(in srgb, #e95f59 10%, #ffffff)"
             >
               {msg.content}
             </div>
@@ -526,7 +593,7 @@
   {/if}
 
   <!-- Input Area -->
-  <div class="border-t border-ctp-surface0 bg-ctp-mantle relative w-full">
+  <div class="border-t border-ctp-crust bg-ctp-mantle relative w-full">
     <!-- Overlay to close model picker on click -->
     {#if showModelPicker}
       <div
@@ -537,7 +604,7 @@
 
     <!-- Drag-over overlay -->
     {#if isDragOver}
-      <div class="absolute inset-0 bg-ctp-blue/10 border-2 border-dashed border-ctp-blue rounded-lg flex items-center justify-center pointer-events-none z-10">
+      <div class="absolute inset-0 bg-ctp-blue/5 border-2 border-dashed border-ctp-blue rounded-lg flex items-center justify-center pointer-events-none z-10">
         <span class="text-ctp-blue text-sm font-semibold">Drop image to attach</span>
       </div>
     {/if}
@@ -551,22 +618,22 @@
               <img
                 src={img.preview}
                 alt="preview"
-                class="w-16 h-16 object-cover rounded-lg border border-ctp-surface0"
+                class="w-16 h-16 object-cover rounded-lg border border-ctp-crust"
                 class:opacity-50={img.uploading}
                 class:border-ctp-red={img.error}
               />
               {#if img.uploading}
-                <div class="absolute inset-0 flex items-center justify-center bg-ctp-crust/60 rounded-lg">
+                <div class="absolute inset-0 flex items-center justify-center bg-ctp-crust/40 rounded-lg">
                   <div class="w-4 h-4 border-2 border-ctp-blue border-t-transparent rounded-full animate-spin"></div>
                 </div>
               {/if}
               {#if img.error}
-                <div class="absolute inset-0 flex items-center justify-center bg-ctp-crust/60 rounded-lg">
+                <div class="absolute inset-0 flex items-center justify-center bg-ctp-crust/40 rounded-lg">
                   <span class="text-ctp-red text-xl">!</span>
                 </div>
               {/if}
               <button
-                class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ctp-red text-ctp-crust text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-ctp-red text-white text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 onclick={() => removeImage(i)}
               >
                 ✕
@@ -579,7 +646,18 @@
       <!-- Input row -->
       <div class="flex gap-2 items-stretch w-full" ondragover={handleDragOver} ondragleave={handleDragLeave} ondrop={handleDrop}>
         <div class="relative flex-1 min-w-0 flex items-end">
-          <!-- Command Palette -->
+          <!-- File Mention Palette (@) -->
+          {#if showFileMention && $activeSession}
+            <FileMentionPalette
+              bind:this={fileMentionRef}
+              sessionId={$activeSession}
+              {input}
+              onFileSelect={handleFileMentionSelect}
+              onMentionClose={handleFileMentionClose}
+            />
+          {/if}
+
+          <!-- Command Palette (/) -->
           {#if showPalette && $activeSession}
             <CommandPalette
               bind:this={paletteRef}
@@ -593,7 +671,7 @@
           <textarea
             bind:this={textareaEl}
             bind:value={input}
-            class="w-full px-4 py-3 bg-ctp-crust border border-ctp-surface0 rounded-xl text-ctp-text text-base resize-none focus:outline-none focus:border-ctp-blue focus:ring-1 focus:ring-ctp-blue/30 placeholder:text-ctp-overlay0 transition-colors"
+            class="w-full px-4 py-3 bg-ctp-base border border-ctp-crust rounded-xl text-ctp-text text-base resize-none focus:outline-none focus:border-ctp-blue focus:ring-1 focus:ring-ctp-blue/20 placeholder:text-ctp-overlay0 transition-colors"
             class:border-ctp-blue={isDragOver}
             rows="3"
             placeholder={$activeSession ? (isDragOver ? 'Drop image here...' : 'Message the agent...') : 'Select a session to begin...'}
@@ -603,7 +681,7 @@
             onpaste={handlePaste}
           ></textarea>
           <button
-            class="absolute right-2 bottom-3 p-1.5 text-ctp-overlay1 hover:text-ctp-blue hover:bg-ctp-surface0/50 rounded-lg transition-all"
+            class="absolute right-2 bottom-3 p-1.5 text-ctp-overlay1 hover:text-ctp-blue hover:bg-ctp-crust/50 rounded-lg transition-all"
             onclick={() => fileInputEl?.click()}
             title="Attach image"
             disabled={$activeSession === null}
@@ -614,7 +692,7 @@
           </button>
         </div>
         <button
-          class="px-5 py-3 rounded-xl text-sm font-semibold bg-ctp-blue text-ctp-crust hover:bg-ctp-blue/80 active:scale-[0.97] transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:active:scale-100 shrink-0 self-end"
+          class="px-5 py-3 rounded-xl text-sm font-semibold bg-ctp-blue text-white hover:bg-ctp-blue/90 active:scale-[0.97] transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:active:scale-100 shrink-0 self-end"
           disabled={$activeSession === null || pendingImages.some(img => img.uploading)}
           onclick={handleSend}
         >
@@ -636,15 +714,14 @@
         <button
           bind:this={modelBtnRef}
           class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-colors cursor-pointer
-                 bg-ctp-blue/10 text-ctp-blue hover:bg-ctp-blue/20"
-          disabled={!activeRpcRunning()}
-          title={activeRpcRunning() ? 'Click to change model' : 'Send a message first to start RPC'}
+                 bg-ctp-blue/8 text-ctp-blue hover:bg-ctp-blue/15"
+          title="Click to change model"
           onclick={toggleModelPicker}
         >
           {#if switchingModel}
             <span class="w-3 h-3 border border-ctp-blue border-t-transparent rounded-full animate-spin"></span>
           {:else}
-            <span class="font-semibold uppercase text-[10px] w-4 h-4 rounded flex items-center justify-center bg-ctp-blue/20">
+            <span class="font-semibold uppercase text-[10px] w-4 h-4 rounded flex items-center justify-center bg-ctp-blue/12">
               {models.find(m => isCurrentModel(m))?.provider?.[0]?.toUpperCase() || '?'}
             </span>
             <span class="truncate max-w-[180px]">{currentModel || 'Select model'}</span>
@@ -659,7 +736,7 @@
           <div class="flex items-center gap-1.5 text-[10px] text-ctp-overlay1">
             <div
               class="w-1.5 h-1.5 rounded-full transition-colors duration-300"
-              style="background: {activeRpcRunning() || $rpcAutoStarting ? '#a6e3a1' : '#6c7086'}"
+              style="background: {activeRpcRunning() || $rpcAutoStarting ? '#65b73b' : '#888888'}"
             ></div>
             <span>
               {$rpcAutoStarting ? 'Starting' : (activeRpcRunning() ? 'RPC active' : 'Idle')}
@@ -667,7 +744,7 @@
           </div>
           {#if $isStreaming}
             <button
-              class="px-2 py-0.5 rounded text-[10px] font-medium bg-ctp-red/15 text-ctp-red hover:bg-ctp-red/25 transition-colors"
+              class="px-2 py-0.5 rounded text-[10px] font-medium bg-ctp-red/10 text-ctp-red hover:bg-ctp-red/20 transition-colors"
               onclick={abortRPC}
             >
               ■ Stop
@@ -681,16 +758,16 @@
     {#if showModelPicker}
       <div
         bind:this={modelDropdownEl}
-        class="absolute z-[30] left-4 bottom-full mb-2 w-80 bg-ctp-base border border-ctp-surface0 rounded-xl shadow-2xl overflow-hidden animate-fadeIn"
+        class="absolute z-[30] left-4 bottom-full mb-2 w-80 bg-ctp-base border border-ctp-crust rounded-xl shadow-2xl overflow-hidden animate-fadeIn"
         style="bottom: calc(100% + 8px);"
       >
         <!-- Header -->
-        <div class="px-3 py-2 border-b border-ctp-surface0/50 flex items-center justify-between">
+        <div class="px-3 py-2 border-b border-ctp-crust flex items-center justify-between">
           <span class="text-[11px] font-semibold text-ctp-overlay0">Switch Model</span>
           {#if models.length > 1}
             <button
               class="text-[11px] text-ctp-blue hover:text-ctp-blue/80 cursor-pointer px-2 py-0.5 rounded hover:bg-ctp-blue/10 transition-colors"
-              disabled={!activeRpcRunning() || switchingModel}
+              disabled={switchingModel}
               onclick={(e) => { e.stopPropagation(); handleCycleModel(); }}
               title="Cycle to next model"
             >
@@ -699,30 +776,20 @@
           {/if}
         </div>
 
-        <!-- RPC not running warning -->
-        {#if !activeRpcRunning()}
-          <div class="px-4 py-4 text-center">
-            <div class="text-[11px] text-ctp-overlay0 mb-2">
-              RPC is not running for this session.
-            </div>
-            <div class="text-[10px] text-ctp-overlay1">
-              Type a message in the chat box to start RPC, then come back to switch models.
-            </div>
-          </div>
-        {:else if modelsLoading}
+        {#if $rpcAutoStarting || modelsLoading}
           <div class="px-4 py-6 text-center text-[11px] text-ctp-overlay0">
             <div class="w-4 h-4 border-2 border-ctp-blue border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-            Loading models...
+            {$rpcAutoStarting ? 'Connecting...' : 'Loading models...'}
           </div>
         {:else if modelsError}
-          <div class="px-4 py-3 text-[11px] text-ctp-red bg-ctp-red/5">
+          <div class="px-4 py-3 text-[11px] text-ctp-red bg-ctp-red/8">
             {escapeHTML(modelsError)}
           </div>
         {:else}
           <div class="max-h-64 overflow-y-auto py-1">
             {#each models as m}
               <button
-                class="w-full px-3 py-2 text-left flex items-center gap-2.5 transition-colors hover:bg-ctp-surface0/70 cursor-pointer {isCurrentModel(m) ? 'bg-ctp-surface0/40' : ''}"
+                class="w-full px-3 py-2 text-left flex items-center gap-2.5 transition-colors hover:bg-ctp-crust/70 cursor-pointer {isCurrentModel(m) ? 'bg-ctp-crust/40' : ''}"
                 disabled={switchingModel || isCurrentModel(m)}
                 onclick={() => selectModel(m)}
               >
@@ -735,7 +802,7 @@
                 </span>
 
                 <span class="text-xs font-bold shrink-0 w-5 h-5 rounded flex items-center justify-center"
-                      style="background:color-mix(in srgb, #89b4fa 20%, transparent); color:#89b4fa"
+                      style="background:color-mix(in srgb, #135ce0 10%, transparent); color:#135ce0"
                       title={m.provider}>
                   {providerIcon(m.provider)}
                 </span>
@@ -751,7 +818,7 @@
 
                 {#if m.contextWindow}
                   <span class="text-[9px] px-1.5 py-0.5 rounded shrink-0"
-                        style="background:color-mix(in srgb, #94e2d5 15%, transparent); color:#94e2d5">
+                        style="background:color-mix(in srgb, #1b7c83 10%, transparent); color:#1b7c83">
                     {Math.round(m.contextWindow / 1000)}k
                   </span>
                 {/if}

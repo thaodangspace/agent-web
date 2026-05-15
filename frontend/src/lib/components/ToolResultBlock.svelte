@@ -33,13 +33,13 @@
 <div class="flex flex-col items-start animate-fadeIn w-full">
   <div
     class="w-full max-w-[85%] rounded-xl overflow-hidden border border-ctp-surface0"
-    style="border-color: {isError ? '#f38ba8' : '#585b70'}"
+    style="border-color: {isError ? '#e95f59' : '#e5e5e5'}"
   >
     <button
       class="w-full flex items-center gap-2 px-3 py-2 text-xs cursor-pointer"
       style="background: {isError
-        ? 'color-mix(in srgb, #f38ba8 15%, #313244)'
-        : 'color-mix(in srgb, #f9e2af 15%, #313244)'}"
+        ? 'color-mix(in srgb, #e95f59 12%, #ffffff)'
+        : 'color-mix(in srgb, #dbab09 12%, #ffffff)'}"
       onclick={toggle}
     >
       <span
@@ -55,7 +55,7 @@
       {/if}
     </button>
     <div class="border-t border-ctp-surface0" class:hidden={collapsed}>
-      <div class="p-3 text-xs overflow-x-auto" style="background:color-mix(in srgb, #1e1e2e 50%, #11111b);">
+      <div class="p-3 text-xs overflow-x-auto" style="background:#f6f6f6;">
         {#if highlighted}
           <pre class="font-mono text-[11px] whitespace-pre-wrap break-words max-h-[400px] overflow-y-auto">
             {@html contentHTML}

@@ -101,6 +101,17 @@ export function imageViewUrl(absPath) {
   return `/api/images/view?p=${encoded}`;
 }
 
+/** Translate text using the server's local LLM (LM Studio). */
+export async function translateText(text, targetLang = 'vi') {
+  const res = await fetch('/api/translate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, target_lang: targetLang }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 /**
  * Convert a standard base64 string to a base64url-encoded string
  * (replaces + with -, / with _, strips trailing =).

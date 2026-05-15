@@ -1,21 +1,62 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"agent-web/internal/server"
 )
 
+// loadEnv reads key=value pairs from .env file (simple format, no quotes needed).
+func loadEnv(path string) map[string]string {
+	result := make(map[string]string)
+	f, err := os.Open(path)
+	if err != nil {
+		return result // silently ignore missing .env
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		kv := strings.SplitN(line, "=", 2)
+		if len(kv) == 2 {
+			result[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+		}
+	}
+	return result
+}
+
 func main() {
 	addr := flag.String("addr", ":8081", "HTTP listen address")
 	sessionsDir := flag.String("sessions", "", "Path to .pi/agent/sessions directory")
 	claudeProjectsDir := flag.String("claude-projects", "", "Path to ~/.claude/projects directory")
+	allowedRoots := flag.String("roots", "", "Comma-separated allowed root folders for filesystem API")
 	flag.Parse()
+
+	// Load .env file (looks in current dir)
+	env := loadEnv(".env")
+
+	// Use .env values as fallback for flags
+	if *allowedRoots == "" {
+		*allowedRoots = env["ALLOWED_ROOT_FOLDERS"]
+	}
+
+	// Set LM Studio env vars from .env (used by llm package)
+	if env["LMSTUDIO_URL"] != "" {
+		os.Setenv("LMSTUDIO_URL", env["LMSTUDIO_URL"])
+	}
+	if env["LMSTUDIO_MODEL"] != "" {
+		os.Setenv("LMSTUDIO_MODEL", env["LMSTUDIO_MODEL"])
+	}
 
 	// Default sessions directory
 	if *sessionsDir == "" {
@@ -44,9 +85,15 @@ func main() {
 		log.Fatalf("sessions path is not a directory: %s", *sessionsDir)
 	}
 
-	srv, err := server.New(*sessionsDir, *claudeProjectsDir)
+	srv, err := server.New(*sessionsDir, *claudeProjectsDir, *allowedRoots)
 	if err != nil {
 		log.Fatalf("create server: %v", err)
+	}
+
+	if *allowedRoots != "" {
+		log.Printf("[main] Allowed filesystem roots: %s", *allowedRoots)
+	} else {
+		log.Printf("[main] No allowed filesystem roots configured (fsbrowse API disabled)")
 	}
 
 	// Graceful shutdown
