@@ -9,6 +9,7 @@
   import MessageBubble from './MessageBubble.svelte';
   import AssistantBubble from './AssistantBubble.svelte';
   import ToolResultBlock from './ToolResultBlock.svelte';
+  import ToolResultGroup from './ToolResultGroup.svelte';
   import LoadingIndicator from './LoadingIndicator.svelte';
   import ScrollDownButton from './ScrollDownButton.svelte';
   import CommandPalette from './CommandPalette.svelte';
@@ -49,6 +50,29 @@
 
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
   const MAX_IMAGES = 5;
+
+  /**
+   * Group consecutive toolResult messages into a single display item.
+   */
+  function computeDisplayGroups(msgs) {
+    const items = [];
+    let group = null;
+    for (const msg of msgs) {
+      if (msg.role === 'toolResult') {
+        if (!group) {
+          group = { type: 'toolGroup', results: [], groupId: 'tg-' + msg.id };
+          items.push(group);
+        }
+        group.results.push(msg);
+      } else {
+        group = null;
+        items.push({ type: 'message', msg });
+      }
+    }
+    return items;
+  }
+
+  let displayGroups = $state([]);
 
   /**
    * Add an image file, uploading it to the backend first.
@@ -267,8 +291,11 @@
       rpcMap = new Map(map);
     });
 
-    // Subscribe to messages changes for auto-scroll
+    // Subscribe to messages changes for auto-scroll + display grouping
     const unsubMsgs = messages.subscribe(async msgs => {
+      // Update display groups (reactive grouping of toolResult messages)
+      displayGroups = computeDisplayGroups(msgs);
+
       if (!chatContainer || msgs.length === 0) return;
 
       // Wait for DOM to update with new messages
@@ -550,23 +577,28 @@
         </div>
       </div>
     {:else}
-      {#each $messages as msg (msg.id)}
-        {#if msg.role === 'user'}
-          <MessageBubble {msg} />
-        {:else if msg.role === 'assistant'}
-          <AssistantBubble {msg} />
-        {:else if msg.role === 'toolResult'}
-          <!-- Fallback: render standalone tool results only when not attached to an assistant message -->
-          <ToolResultBlock {msg} />
-        {:else if msg.role === 'system'}
-          <div class="flex items-center justify-center animate-fadeIn">
-            <div
-              class="px-3 py-1.5 rounded-lg text-xs text-ctp-red"
-              style="background:color-mix(in srgb, #e95f59 10%, #ffffff)"
-            >
-              {msg.content}
+      {#each displayGroups as group (group.msg?.id || group.groupId)}
+        {#if group.type === 'message'}
+          {#if group.msg.role === 'user'}
+            <MessageBubble msg={group.msg} />
+          {:else if group.msg.role === 'assistant'}
+            <AssistantBubble msg={group.msg} />
+          {:else if group.msg.role === 'system'}
+            <div class="flex items-center justify-center animate-fadeIn">
+              <div
+                class="px-3 py-1.5 rounded-lg text-xs text-ctp-red"
+                style="background:color-mix(in srgb, #e95f59 10%, #ffffff)"
+              >
+                {group.msg.content}
+              </div>
             </div>
-          </div>
+          {/if}
+        {:else if group.type === 'toolGroup'}
+          {#if group.results.length === 1}
+            <ToolResultBlock msg={group.results[0]} />
+          {:else}
+            <ToolResultGroup results={group.results} />
+          {/if}
         {/if}
       {/each}
 
