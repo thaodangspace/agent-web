@@ -17,7 +17,7 @@ type Client struct {
 	hub       *Hub
 	conn      *websocket.Conn
 	send      chan []byte
-	closed    chan struct{} // closed when client disconnects
+	closed    chan struct{}   // closed when client disconnects
 	subscribe map[string]bool // session IDs to filter by (empty = all)
 	project   string          // project filter (empty = all)
 }
@@ -39,10 +39,10 @@ type Hub struct {
 // New creates a new Hub.
 func New() *Hub {
 	return &Hub{
-		clients:      make(map[*Client]bool),
-		register:     make(chan *Client),
-		unregister:   make(chan *Client),
-		broadcast:    make(chan []byte, 256),
+		clients:    make(map[*Client]bool),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
+		broadcast:  make(chan []byte, 256),
 	}
 }
 
@@ -108,6 +108,25 @@ func (h *Hub) SubscribeWatcher(w *watcher.Watcher) {
 
 // SubscribeClaudeWatcher reads events from the Claude Code watcher and broadcasts them.
 func (h *Hub) SubscribeClaudeWatcher(w *watcher.ClaudeWatcher) {
+	for ev := range w.Events() {
+		msg := WSMessage{
+			Type:      "event",
+			SessionID: ev.SessionID,
+			Project:   ev.Project,
+			Data:      ev.Data,
+			Time:      ev.Timestamp,
+		}
+		data, err := json.Marshal(msg)
+		if err != nil {
+			log.Printf("[hub] marshal error: %v", err)
+			continue
+		}
+		h.broadcast <- data
+	}
+}
+
+// SubscribeCodexWatcher reads events from the Codex watcher and broadcasts them.
+func (h *Hub) SubscribeCodexWatcher(w *watcher.CodexWatcher) {
 	for ev := range w.Events() {
 		msg := WSMessage{
 			Type:      "event",
