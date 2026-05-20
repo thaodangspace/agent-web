@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -105,6 +106,7 @@ func (d *CodexDecoder) Close() error { return d.file.Close() }
 
 func (d *CodexDecoder) Next() (*Event, error) {
 	for {
+		lineStartOffset := d.offset
 		line, err := d.reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
@@ -125,7 +127,7 @@ func (d *CodexDecoder) Next() (*Event, error) {
 			continue
 		}
 
-		ev, drop := normalizeCodexLine(trimmed)
+		ev, drop := normalizeCodexLineAtOffset(trimmed, lineStartOffset)
 		if drop {
 			return nil, nil
 		}
@@ -134,6 +136,10 @@ func (d *CodexDecoder) Next() (*Event, error) {
 }
 
 func normalizeCodexLine(line string) (*Event, bool) {
+	return normalizeCodexLineAtOffset(line, 0)
+}
+
+func normalizeCodexLineAtOffset(line string, offset int64) (*Event, bool) {
 	var env CodexEnvelope
 	if err := json.Unmarshal([]byte(line), &env); err != nil {
 		return nil, true
@@ -151,7 +157,7 @@ func normalizeCodexLine(line string) (*Event, bool) {
 
 	switch payload.Type {
 	case "message":
-		return normalizeCodexMessage(env.Timestamp, env.Payload)
+		return normalizeCodexMessage(env.Timestamp, env.Payload, offset)
 	case "function_call":
 		return normalizeCodexFunctionCall(env.Timestamp, env.Payload)
 	case "function_call_output":
@@ -161,7 +167,7 @@ func normalizeCodexLine(line string) (*Event, bool) {
 	}
 }
 
-func normalizeCodexMessage(timestamp string, raw json.RawMessage) (*Event, bool) {
+func normalizeCodexMessage(timestamp string, raw json.RawMessage, offset int64) (*Event, bool) {
 	var msg CodexMessage
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		return nil, true
@@ -180,7 +186,8 @@ func normalizeCodexMessage(timestamp string, raw json.RawMessage) (*Event, bool)
 		return nil, true
 	}
 
-	return marshalCodexEvent(timestamp, "codex-"+shortStableID(timestamp, msg.Role)+"-"+shortHash(raw), map[string]interface{}{
+	id := "codex-" + shortStableID(timestamp, msg.Role) + "-" + shortHash(raw) + "-o" + strconv.FormatInt(offset, 10)
+	return marshalCodexEvent(timestamp, id, map[string]interface{}{
 		"role":    msg.Role,
 		"content": blocks,
 	})

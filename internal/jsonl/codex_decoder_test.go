@@ -190,3 +190,30 @@ func TestCodexDecoderNext(t *testing.T) {
 		t.Fatalf("expected message, got %q", ev.Type)
 	}
 }
+
+func TestCodexDecoderNextMessageIDsDifferForIdenticalMessagesAtDifferentOffsets(t *testing.T) {
+	line := `{"timestamp":"2026-05-19T02:39:56.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"same message"}]}}`
+	content := line + "\n" + line + "\n"
+	path := t.TempDir() + "/rollout-test.jsonl"
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	dec, err := NewCodexDecoder(path, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dec.Close()
+
+	ev1, err := dec.Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev2, err := dec.Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev1.ID == ev2.ID {
+		t.Fatalf("expected distinct event IDs, got %q", ev1.ID)
+	}
+}
