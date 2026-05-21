@@ -19,7 +19,6 @@
   import { getRPCCOmmands, uploadImage, getAvailableModels, setModel, cycleModel } from '$lib/api/rpc.js';
   import { sessionCommands, commandsLoading } from '$lib/stores/commands.svelte.js';
   import { availableModels, setModelsForSession, clearModelsForSession } from '$lib/stores/models.svelte.js';
-  import { computeDisplayGroups } from '$lib/utils/displayGroups.js';
   import { findSession, readOnlySessionLabel, sessionSupportsRPC } from '$lib/utils/sessionCapabilities.js';
 
   let input = $state('');
@@ -53,6 +52,27 @@
 
   const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB
   const MAX_IMAGES = 5;
+
+  /**
+   * Group consecutive toolResult messages into a single display item.
+   */
+  function computeDisplayGroups(msgs) {
+    const items = [];
+    let group = null;
+    for (const msg of msgs) {
+      if (msg.role === 'toolResult') {
+        if (!group) {
+          group = { type: 'toolGroup', results: [], groupId: 'tg-' + msg.id };
+          items.push(group);
+        }
+        group.results.push(msg);
+      } else {
+        group = null;
+        items.push({ type: 'message', msg });
+      }
+    }
+    return items;
+  }
 
   let displayGroups = $state([]);
   let activeSessionInfo = $derived(findSession($sessions, $activeSession));
@@ -628,7 +648,6 @@
       </div>
     {/if}
 
-    {#if !activeSessionIsReadOnly}
     <div class="px-4 pt-3 pb-2 relative z-[20]">
       <!-- Image Previews -->
       {#if pendingImages.length > 0}
@@ -772,7 +791,6 @@
         </div>
       </div>
     </div>
-    {/if}
  
     <!-- Model Dropdown Panel - positioned above the model button -->
     {#if showModelPicker && !activeSessionIsReadOnly}
