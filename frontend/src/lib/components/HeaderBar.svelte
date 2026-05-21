@@ -6,7 +6,6 @@
   import { quitSession } from '$lib/actions/session.js';
   import { createSession, fetchSessions } from '$lib/api/sessions.js';
   import { selectSession } from '$lib/actions/session.js';
-  import { formatTokens } from '$lib/utils/format.js';
   import { Menu, Plus, Info } from '@lucide/svelte';
   import SessionInfoModal from './SessionInfoModal.svelte';
 
@@ -63,20 +62,6 @@
   ></div>
   <span class="text-sm text-ctp-overlay0 shrink-0">{$wsConnected ? 'Connected' : 'Disconnected'}</span>
 
-  {#if sessionInfo?.total_tokens}
-    <span class="text-[11px] text-ctp-overlay0 shrink-0 flex items-center gap-1.5">
-      <span>{formatTokens(sessionInfo.total_tokens)} tokens</span>
-      <span class="text-ctp-surface1">·</span>
-      <span>{formatTokens(sessionInfo.input_tokens)} in</span>
-      <span class="text-ctp-surface1">·</span>
-      <span>{formatTokens(sessionInfo.output_tokens)} out</span>
-      {#if sessionInfo.context_window}
-        <span class="text-ctp-surface1">·</span>
-        <span>{formatTokens(sessionInfo.context_window)} context</span>
-      {/if}
-    </span>
-  {/if}
-
   <div class="flex-1 min-w-0 overflow-hidden flex items-center gap-2">
     {#if sessionInfo}
       {#if sessionInfo.project}
@@ -85,14 +70,6 @@
           style="background:color-mix(in srgb, #135ce0 12%, transparent); color:#135ce0"
         >
           {escapeHTML(sessionInfo.project)}
-        </span>
-      {/if}
-      {#if sessionInfo.cwd}
-        <span
-          class="text-[10px] px-2 py-0.5 rounded-full whitespace-nowrap text-ctp-overlay0"
-          style="background:color-mix(in srgb, #d5d5d5 60%, transparent)"
-        >
-          {sessionInfo.cwd.length > 50 ? '...' + sessionInfo.cwd.slice(-47) : sessionInfo.cwd}
         </span>
       {/if}
       <button
