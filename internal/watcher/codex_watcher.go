@@ -78,6 +78,7 @@ func (w *CodexWatcher) Stop() {
 	close(w.quit)
 	w.fsw.Close()
 	w.wg.Wait()
+	w.closeDecoders()
 	close(w.events)
 }
 
@@ -155,7 +156,7 @@ func (w *CodexWatcher) tailFile(path string) {
 			return
 		}
 
-		sessionID, project := extractCodexMeta(path, meta.CWD)
+		sessionID, project := extractCodexMeta(path, meta.CWD, meta.ID)
 		entry = &codexDecoderEntry{
 			dec:    dec,
 			proj:   project,
@@ -175,13 +176,32 @@ func (w *CodexWatcher) tailFile(path string) {
 			continue
 		}
 
-		w.events <- Event{
+		ev := Event{
 			SessionID: entry.sessID,
 			Project:   entry.proj,
 			File:      path,
 			Data:      event.Raw,
 			Timestamp: time.Now(),
 		}
+		select {
+		case w.events <- ev:
+		case <-w.quit:
+			return
+		}
+	}
+}
+
+func (w *CodexWatcher) closeDecoders() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for path, entry := range w.decoders {
+		if entry != nil && entry.dec != nil {
+			if err := entry.dec.Close(); err != nil {
+				log.Printf("[codex-watcher] close %s: %v", path, err)
+			}
+		}
+		delete(w.decoders, path)
 	}
 }
 
@@ -210,10 +230,13 @@ func readCodexFileMeta(path string) (jsonl.CodexSessionMeta, bool) {
 
 var codexRolloutSessionIDRe = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-func extractCodexMeta(path, cwd string) (sessionID, project string) {
+func extractCodexMeta(path, cwd, metaID string) (sessionID, project string) {
 	base := strings.TrimSuffix(filepath.Base(path), ".jsonl")
 	if match := codexRolloutSessionIDRe.FindString(base); match != "" {
 		sessionID = match
+	}
+	if sessionID == "" {
+		sessionID = metaID
 	}
 	if sessionID == "" {
 		sessionID = base
