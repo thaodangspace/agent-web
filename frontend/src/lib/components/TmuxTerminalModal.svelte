@@ -198,7 +198,7 @@
       <div class="px-4 py-3 border-b border-ctp-surface0 flex items-center justify-between bg-ctp-crust">
         <div class="flex items-center gap-3">
           <span class="text-sm font-semibold text-ctp-text font-mono">
-            {sessionName}{windowIndex !== null ? ':' + windowIndex : ''}
+            {sessionName}{windowIndex !== null && windowIndex > 0 ? ':' + windowIndex : ''}
           </span>
           <span class="w-[8px] h-[8px] rounded-full flex-shrink-0 {
             status === 'connected' ? 'bg-ctp-green' :
