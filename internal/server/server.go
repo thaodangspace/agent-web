@@ -16,6 +16,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -197,6 +198,7 @@ func (s *Server) Start(addr string) error {
 	mux.HandleFunc("/api/translate", s.handleTranslate)
 
 	// tmux
+	mux.HandleFunc("/api/tmux/sessions/", s.handleTmuxWindows)
 	mux.HandleFunc("/api/tmux/sessions", s.handleTmuxSessions)
 	mux.HandleFunc("/ws/tmux/", s.handleTmuxWS)
 
@@ -1535,11 +1537,57 @@ func (s *Server) handleTmuxSessions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleTmuxWindows(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	sessionName := strings.TrimPrefix(r.URL.Path, "/api/tmux/sessions/")
+	sessionName = strings.TrimSuffix(sessionName, "/windows")
+	if sessionName == "" {
+		http.Error(w, "missing session name", http.StatusBadRequest)
+		return
+	}
+
+	if !tmux.IsAvailable() {
+		http.Error(w, "tmux not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	windows, err := tmux.ListWindows(sessionName)
+	if err != nil {
+		if strings.Contains(err.Error(), "no server") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode([]tmux.Window{})
+			return
+		}
+		log.Printf("[server] tmux list windows error: %v", err)
+		http.Error(w, fmt.Sprintf("tmux error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(windows)
+}
+
 func (s *Server) handleTmuxWS(w http.ResponseWriter, r *http.Request) {
 	sessionName := strings.TrimPrefix(r.URL.Path, "/ws/tmux/")
 	if sessionName == "" {
 		http.Error(w, "missing session name", http.StatusBadRequest)
 		return
+	}
+
+	windowIndex := -1
+	if w := r.URL.Query().Get("window"); w != "" {
+		if n, err := strconv.Atoi(w); err == nil {
+			windowIndex = n
+		}
+	}
+
+	attachKey := sessionName
+	if windowIndex >= 0 {
+		attachKey = fmt.Sprintf("%s:%d", sessionName, windowIndex)
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -1548,18 +1596,22 @@ func (s *Server) handleTmuxWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[server] tmux ws: attaching to session %q", sessionName)
+	if windowIndex >= 0 {
+		log.Printf("[server] tmux ws: attaching to session %q window %d", sessionName, windowIndex)
+	} else {
+		log.Printf("[server] tmux ws: attaching to session %q", sessionName)
+	}
 
 	// Get or create shared attacher
 	s.tmuxAttachMu.Lock()
-	attach, exists := s.tmuxAttachers[sessionName]
+	attach, exists := s.tmuxAttachers[attachKey]
 	if !exists {
-		attach = tmux.NewAttach(sessionName)
-		s.tmuxAttachers[sessionName] = attach
+		attach = tmux.NewAttach(sessionName, windowIndex)
+		s.tmuxAttachers[attachKey] = attach
 		go func() {
 			attach.Start()
 			s.tmuxAttachMu.Lock()
-			delete(s.tmuxAttachers, sessionName)
+			delete(s.tmuxAttachers, attachKey)
 			s.tmuxAttachMu.Unlock()
 		}()
 	}
@@ -1594,7 +1646,11 @@ func (s *Server) handleTmuxWS(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		attach.Unsubscribe(subCh)
 		conn.Close()
-		log.Printf("[server] tmux ws: detached from session %q", sessionName)
+		if windowIndex >= 0 {
+			log.Printf("[server] tmux ws: detached from session %q window %d", sessionName, windowIndex)
+		} else {
+			log.Printf("[server] tmux ws: detached from session %q", sessionName)
+		}
 	}()
 
 	for {
@@ -1619,7 +1675,7 @@ func (s *Server) handleTmuxWS(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		case "resize":
-			if msg.Cols > 0 && msg.Rows > 0 {
+			if windowIndex < 0 && msg.Cols > 0 && msg.Rows > 0 {
 				attach.Resize(msg.Cols, msg.Rows)
 			}
 		}
