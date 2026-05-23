@@ -26,6 +26,7 @@ import (
 	"agent-reader/internal/llm"
 	"agent-reader/internal/readtracker"
 	"agent-reader/internal/rpc"
+	"agent-reader/internal/tmux"
 	"agent-reader/internal/watcher"
 
 	"github.com/gorilla/websocket"
@@ -85,6 +86,8 @@ type Server struct {
 	codexSessionsDir  string
 	fsbrowse          *fsbrowse.Service   // filesystem browsing service (may be nil)
 	llmClient         *llm.LMStudioClient // local LLM client for translation
+	tmuxAttachers     map[string]*tmux.SessionAttach
+	tmuxAttachMu      sync.Mutex
 }
 
 // New creates a new Server.
@@ -111,6 +114,7 @@ func New(sessionsDir, claudeProjectsDir, codexSessionsDir, allowedRootsCSV strin
 		claudeProjectsDir: claudeProjectsDir,
 		codexSessionsDir:  codexSessionsDir,
 		llmClient:         llm.NewLMStudioClient(),
+		tmuxAttachers:     make(map[string]*tmux.SessionAttach),
 	}
 
 	log.Printf("[server] read tracker initialized (24h TTL) at %s", dbPath)
@@ -192,6 +196,10 @@ func (s *Server) Start(addr string) error {
 	// Translation
 	mux.HandleFunc("/api/translate", s.handleTranslate)
 
+	// tmux
+	mux.HandleFunc("/api/tmux/sessions", s.handleTmuxSessions)
+	mux.HandleFunc("/ws/tmux/", s.handleTmuxWS)
+
 	// Static files (Svelte SPA with fallback)
 	staticSub, err := fs.Sub(staticFS, "static/dist")
 	if err == nil {
@@ -232,6 +240,13 @@ func (s *Server) Stop() {
 		delete(s.rpcMgr.sessions, id)
 	}
 	s.rpcMgr.mu.Unlock()
+
+	// Stop tmux attachers
+	s.tmuxAttachMu.Lock()
+	for _, attach := range s.tmuxAttachers {
+		attach.Stop()
+	}
+	s.tmuxAttachMu.Unlock()
 
 	s.watcher.Stop()
 	if s.claudeWatcher != nil {
@@ -1479,6 +1494,136 @@ func (s *Server) onSubscribe(sessionID string, client *hub.Client) {
 	}
 
 	log.Printf("[server] finished replaying session %s", sessionID)
+}
+
+// ===== tmux API =====
+
+func (s *Server) handleTmuxSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !tmux.IsAvailable() {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"available": false,
+			"error":     "tmux binary not found",
+		})
+		return
+	}
+
+	sessions, err := tmux.ListSessions()
+	if err != nil {
+		if strings.Contains(err.Error(), "no server") {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"available": true,
+				"sessions":  []tmux.Session{},
+			})
+			return
+		}
+		log.Printf("[server] tmux list sessions error: %v", err)
+		http.Error(w, fmt.Sprintf("tmux error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"available": true,
+		"sessions":  sessions,
+	})
+}
+
+func (s *Server) handleTmuxWS(w http.ResponseWriter, r *http.Request) {
+	sessionName := strings.TrimPrefix(r.URL.Path, "/ws/tmux/")
+	if sessionName == "" {
+		http.Error(w, "missing session name", http.StatusBadRequest)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("[server] tmux ws upgrade error: %v", err)
+		return
+	}
+
+	log.Printf("[server] tmux ws: attaching to session %q", sessionName)
+
+	// Get or create shared attacher
+	s.tmuxAttachMu.Lock()
+	attach, exists := s.tmuxAttachers[sessionName]
+	if !exists {
+		attach = tmux.NewAttach(sessionName)
+		s.tmuxAttachers[sessionName] = attach
+		go func() {
+			attach.Start()
+			s.tmuxAttachMu.Lock()
+			delete(s.tmuxAttachers, sessionName)
+			s.tmuxAttachMu.Unlock()
+		}()
+	}
+	s.tmuxAttachMu.Unlock()
+
+	subCh := attach.Subscribe()
+
+	// Helper to send JSON
+	sendJSON := func(v interface{}) error {
+		return conn.WriteJSON(v)
+	}
+
+	// Goroutine: read from subscription channel and forward to WebSocket
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for content := range subCh {
+			if err := sendJSON(map[string]interface{}{
+				"type":    "data",
+				"content": content,
+			}); err != nil {
+				return
+			}
+		}
+		// Channel closed — session ended or attacher stopped
+		sendJSON(map[string]interface{}{
+			"type": "session_end",
+		})
+	}()
+
+	// Main loop: read WebSocket messages and forward to tmux
+	defer func() {
+		attach.Unsubscribe(subCh)
+		conn.Close()
+		log.Printf("[server] tmux ws: detached from session %q", sessionName)
+	}()
+
+	for {
+		var msg struct {
+			Type    string `json:"type"`
+			Content string `json:"content"`
+			Cols    int    `json:"cols"`
+			Rows    int    `json:"rows"`
+		}
+		if err := conn.ReadJSON(&msg); err != nil {
+			return // WebSocket closed
+		}
+
+		switch msg.Type {
+		case "data":
+			if msg.Content != "" {
+				if err := attach.SendKeys(msg.Content); err != nil {
+					sendJSON(map[string]interface{}{
+						"type":  "error",
+						"error": fmt.Sprintf("send-keys: %v", err),
+					})
+				}
+			}
+		case "resize":
+			if msg.Cols > 0 && msg.Rows > 0 {
+				attach.Resize(msg.Cols, msg.Rows)
+			}
+		}
+	}
 }
 
 // ===== Helpers =====
