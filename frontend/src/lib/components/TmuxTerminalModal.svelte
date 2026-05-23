@@ -10,8 +10,9 @@
   let terminal = $state(null);
   let fitAddon = $state(null);
   let ws = $state(null);
-  let status = $state('disconnected'); // 'connecting' | 'connected' | 'disconnected' | 'ended'
+  let status = $state('disconnected');
   let sessionName = $state('');
+  let windowIndex = $state(null);
   let reconnectAttempt = $state(0);
   let reconnectTimer = $state(null);
 
@@ -50,12 +51,16 @@
     status = 'connecting';
 
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${proto}//${location.host}/ws/tmux/${encodeURIComponent(sessionName)}`);
+    let url = `${proto}//${location.host}/ws/tmux/${encodeURIComponent(sessionName)}`;
+    if (windowIndex !== null) {
+      url += `?window=${windowIndex}`;
+    }
+    const socket = new WebSocket(url);
 
     socket.onopen = () => {
       status = 'connected';
       reconnectAttempt = 0;
-      if (terminal) {
+      if (windowIndex === null && terminal) {
         socket.send(JSON.stringify({
           type: 'resize',
           cols: terminal.cols,
@@ -68,8 +73,6 @@
       try {
         const msg = JSON.parse(ev.data);
         if (msg.type === 'data' && terminal) {
-          // Clear screen and home cursor before writing captured content
-          // so cursor positioning codes from capture-pane are interpreted correctly
           terminal.write('\x1b[2J\x1b[H' + msg.content);
         } else if (msg.type === 'session_end') {
           status = 'ended';
@@ -87,7 +90,8 @@
       status = 'disconnected';
       const delay = computeBackoff();
       reconnectTimer = setTimeout(() => {
-        if (tmuxTerminalTarget.get() === sessionName) {
+        const current = tmuxTerminalTarget.get();
+        if (current && current.session === sessionName) {
           connect();
         }
       }, delay);
@@ -103,7 +107,8 @@
   $effect(() => {
     const target = $tmuxTerminalTarget;
     if (target) {
-      sessionName = target;
+      sessionName = target.session;
+      windowIndex = target.window !== undefined ? target.window : null;
       reconnectAttempt = 0;
 
       if (!terminal) {
@@ -145,15 +150,17 @@
           }
         });
 
-        terminal.onResize(({ cols, rows }) => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-          }
-        });
+        if (windowIndex === null) {
+          terminal.onResize(({ cols, rows }) => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+            }
+          });
 
-        requestAnimationFrame(() => {
-          if (fitAddon) fitAddon.fit();
-        });
+          requestAnimationFrame(() => {
+            if (fitAddon) fitAddon.fit();
+          });
+        }
       }
 
       connect();
@@ -163,6 +170,7 @@
   });
 
   $effect(() => {
+    if (windowIndex !== null) return;
     if (!fitAddon || !terminal) return;
     const observer = new ResizeObserver(() => {
       fitAddon.fit();
@@ -179,7 +187,9 @@
       <!-- Header -->
       <div class="px-4 py-3 border-b border-ctp-surface0 flex items-center justify-between bg-ctp-crust">
         <div class="flex items-center gap-3">
-          <span class="text-sm font-semibold text-ctp-text font-mono">{sessionName}</span>
+          <span class="text-sm font-semibold text-ctp-text font-mono">
+            {sessionName}{windowIndex !== null ? ':' + windowIndex : ''}
+          </span>
           <span class="w-[8px] h-[8px] rounded-full flex-shrink-0 {
             status === 'connected' ? 'bg-ctp-green' :
             status === 'connecting' ? 'bg-ctp-yellow animate-pulse' :

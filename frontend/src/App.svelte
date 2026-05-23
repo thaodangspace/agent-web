@@ -15,6 +15,7 @@
   import ToastContainer from '$lib/components/ToastContainer.svelte';
   import TmuxSessionPicker from '$lib/components/TmuxSessionPicker.svelte';
   import TmuxTerminalModal from '$lib/components/TmuxTerminalModal.svelte';
+  import TmuxWindowPicker from '$lib/components/TmuxWindowPicker.svelte';
 
   let isMobile = $state(false);
 
@@ -159,4 +160,7 @@
 
   <!-- tmux Terminal Modal -->
   <TmuxTerminalModal />
+
+  <!-- tmux Window Picker -->
+  <TmuxWindowPicker />
 </div>
