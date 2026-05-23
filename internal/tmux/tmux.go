@@ -252,7 +252,7 @@ func (a *SessionAttach) Resize(cols, rows int) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "tmux", "resize-pane", "-t", a.sessionName, "-x", strconv.Itoa(cols), "-y", strconv.Itoa(rows))
+	cmd := exec.CommandContext(ctx, "tmux", "resize-pane", "-t", a.target(), "-x", strconv.Itoa(cols), "-y", strconv.Itoa(rows))
 	return cmd.Run()
 }
 
